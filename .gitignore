@@ -118,3 +118,9 @@ Desktop.ini
 
 # Linux
 *~
+
+# ---------------------------
+# Project-specific output files
+# ---------------------------
+# Generated forecast output files
+demand_forecast.csv
