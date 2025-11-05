@@ -97,7 +97,7 @@ class Config:
 
     # Default values
     DEFAULT_PROJECTION_DAYS = 365  # Project visits for one year ahead
-    DEFAULT_MAX_CYCLES = 50  # Maximum cycles if not specified
+    DEFAULT_MAX_CYCLES = 10  # Maximum cycles if not specified (fallback value)
 
 
 # ============================================================================
@@ -332,6 +332,11 @@ class VisitProjector:
         """
         Project future visits for a patient
 
+        This implementation matches the Databricks logic:
+        1. Projects remaining visits in the current cycle
+        2. Projects future complete cycles
+        3. Rolls forward cycles if they're in the past
+
         Args:
             row: Patient data row with merged treatment information
 
@@ -341,63 +346,119 @@ class VisitProjector:
         projected_visits = []
 
         try:
-            # Get projection parameters
-            last_cycle, last_day, last_visit_date = self.calculate_projection_parameters(row)
+            # Get last visit date and validate
+            last_visit_date = pd.to_datetime(row['last_study_visit_date'])
+            if pd.isna(last_visit_date):
+                return []
 
-            # Get visit pattern and frequency
-            visit_days = self.text_processor.parse_visit_days(row.get('visit_days', ''))
-            if not visit_days:
-                visit_days = [1]  # Default to day 1 only
-
+            # Get dispensing frequency and validate
             dispensing_frequency = row.get('dispensing_frequency_days', 28)
             if pd.isna(dispensing_frequency):
                 dispensing_frequency = 28
+            cycle_days = int(dispensing_frequency)
 
+            # Get visit days pattern
+            visit_days_str = row.get('visit_days', '')
+            visit_days = self.text_processor.parse_visit_days(visit_days_str)
+            if not visit_days:
+                visit_days = [1]  # Default to day 1 only
+            visit_days = sorted(visit_days)
+
+            # Get cycle information
+            last_day_number = row.get('parsed_last_visit_day', 1)
+            current_cycle_number = row.get('parsed_last_visit_cycle', 0)
+            is_crossover = row.get('Is Crossover', False)
+            is_tpc = row.get('Is TPC', False)
+
+            # Get max cycles with fallback
             max_cycles = row.get('max_cycles', Config.DEFAULT_MAX_CYCLES)
-            if pd.isna(max_cycles):
-                max_cycles = Config.DEFAULT_MAX_CYCLES
-
-            # Calculate when the current cycle started
-            current_cycle_start = last_visit_date - timedelta(days=last_day - 1)
-
-            # Determine starting point for projections
-            if last_cycle == 0:
-                next_cycle = 1
-                next_cycle_start = last_visit_date
+            if pd.isna(max_cycles) or max_cycles < 1:
+                cycles_to_project = Config.DEFAULT_MAX_CYCLES  # Fallback to 10
             else:
-                next_cycle = last_cycle + 1
-                next_cycle_start = current_cycle_start + timedelta(days=dispensing_frequency)
+                cycles_to_project = int(max_cycles) - current_cycle_number
+                if cycles_to_project < 0:
+                    cycles_to_project = 0
 
-            # Project future cycles
-            cycles_to_project = min(
-                int(Config.DEFAULT_PROJECTION_DAYS / dispensing_frequency) + 1,
-                int(max_cycles - next_cycle + 1)
-            )
+            # Calculate Day 1 of the last recorded cycle (current cycle)
+            time_to_subtract = timedelta(days=last_day_number - 1)
+            last_cycle_day_1 = last_visit_date - time_to_subtract
 
-            for cycle_offset in range(max(0, cycles_to_project)):
-                current_cycle = next_cycle + cycle_offset
+            # Determine prefix for forecast string
+            if is_crossover:
+                prefix = "Crossover "
+            elif is_tpc:
+                prefix = "TPC "
+            else:
+                prefix = ""
 
-                if current_cycle > max_cycles:
-                    break
+            # Get today's date for comparison
+            TODAY = datetime.now().date()
 
-                cycle_start_date = next_cycle_start + timedelta(days=cycle_offset * dispensing_frequency)
+            # ============================================================================
+            # A. PROJECT REMAINING VISITS IN CURRENT CYCLE
+            # ============================================================================
+            remaining_days = [day for day in visit_days if day > last_day_number]
 
-                # Project each visit day in the cycle
-                for day in visit_days:
-                    visit_date = cycle_start_date + timedelta(days=day - 1)
+            for day in remaining_days:
+                visit_date = last_cycle_day_1 + timedelta(days=day - 1)
 
-                    # Determine the prefix for the visit description
-                    prefix = "TPC " if "tpc" in str(row.get('last_study_visit_recorded', '')).lower() else ""
-                    visit_description = f"{prefix}Cycle {current_cycle} Day {day}"
+                # Only include if the projected date is after the last recorded visit
+                if visit_date.date() > last_visit_date.date():
+                    recorded_forecast_str = f"{prefix}Cycle {current_cycle_number} Day {day}"
 
                     projected_visit = ProjectedVisit(
                         subject_number=int(row['subject_number']),
                         medicine_name=row['medicine_name'],
-                        cycle_number=current_cycle,
+                        cycle_number=current_cycle_number,
                         cycle_day=day,
                         visit_date=visit_date.strftime('%Y-%m-%d'),
                         medicine_quantity=row['total_medicines_required_per_cycle'],
-                        visit_description=visit_description
+                        visit_description=recorded_forecast_str
+                    )
+
+                    projected_visits.append(projected_visit)
+
+            # ============================================================================
+            # B. PROJECT NEXT FULL CYCLES
+            # ============================================================================
+
+            # Calculate Day 1 of the NEXT cycle
+            cycle_duration = timedelta(days=cycle_days)
+            forecast_start_day_1 = last_cycle_day_1 + cycle_duration
+
+            # Roll forward if the calculated start is in the past
+            if forecast_start_day_1.date() < TODAY:
+                days_since_start = (TODAY - forecast_start_day_1.date()).days
+                missed_cycles = days_since_start // cycle_days + 1
+                cycle_day_1 = forecast_start_day_1 + missed_cycles * cycle_duration
+            else:
+                cycle_day_1 = forecast_start_day_1
+
+            # Determine the cycle number to start the future projection from
+            start_cycle_number = current_cycle_number + 1
+
+            for cycle_offset in range(cycles_to_project):
+                # Calculate Day 1 of the current future forecast cycle
+                current_cycle_day_1 = cycle_day_1 + timedelta(days=cycle_offset * cycle_days)
+                current_projected_cycle = start_cycle_number + cycle_offset
+
+                # Check if we've exceeded max cycles
+                if not pd.isna(max_cycles) and current_projected_cycle > max_cycles:
+                    break
+
+                for day in visit_days:
+                    visit_date = current_cycle_day_1 + timedelta(days=day - 1)
+
+                    recorded_forecast_str = f"{prefix}Cycle {current_projected_cycle} Day {day}"
+
+                    projected_visit = ProjectedVisit(
+                        subject_number=int(row['subject_number']),
+                        medicine_name=row['medicine_name'],
+                        cycle_number=current_projected_cycle,
+                        cycle_day=day,
+                        visit_date=visit_date.strftime('%Y-%m-%d'),
+                        medicine_quantity=row['total_medicines_required_per_cycle'],
+                        visit_description=recorded_forecast_str
                     )
 
                     projected_visits.append(projected_visit)
@@ -553,6 +614,11 @@ class DemandPlanningProcessor:
         df_aggregated = df.groupby(id_cols, dropna=False).agg(agg_dict).reset_index()
 
         logger.info(f"Aggregated to {len(df_aggregated)} patient-medicine combinations")
+
+        # Add flags for Crossover and TPC to help with prefix generation
+        df_aggregated['Is Crossover'] = df_aggregated['last_study_visit_recorded'].astype(str).str.contains('Crossover', case=False)
+        df_aggregated['Is TPC'] = df_aggregated['last_study_visit_recorded'].astype(str).str.contains('tpc', case=False)
+
         return df_aggregated
 
     def project_all_visits(self, df_plan: pd.DataFrame) -> pd.DataFrame:
@@ -619,13 +685,13 @@ class DemandPlanningProcessor:
         # Define columns to keep from the plan
         plan_columns = [
             'subject_number', 'site_id', 'parent_depot', 'subject_status',
-            'randomized_treatment', 'tpc', 'medicine_name',
+            'randomized_treatment', 'tpc', 'medicine_name', 'country',
             'study_protocol', 'visit_days', 'visit_count_per_cycle',
             'dispensing_quantity', 'dispensing_frequency_days', 'date_randomized',
             'last_study_visit_recorded', 'last_study_visit_date',
             'last_study_visit_number', 'total_medicines_required_per_cycle',
             'study_drug_dispensed', 'additional_study_drug_dispensed',
-            'parsed_last_visit_cycle', 'parsed_last_visit_day'
+            'parsed_last_visit_cycle', 'parsed_last_visit_day', 'processed_timestamp'
         ]
 
         # Keep only columns that exist
@@ -642,15 +708,16 @@ class DemandPlanningProcessor:
         # Rename columns for final output
         df_final.rename(columns={
             'study_protocol': 'study_name',
-            'medicine_name': 'drug_dispensed'
+            'medicine_name': 'drug_dispensed',
+            'country': 'subject_country'
         }, inplace=True)
 
         # Define final column order
         final_columns = [
             'study_name', 'parent_depot', 'site_id', 'subject_number',
-            'subject_status', 'randomized_treatment', 'tpc', 'drug_dispensed',
+            'subject_status', 'subject_country', 'randomized_treatment', 'tpc', 'drug_dispensed',
             'dispensing_quantity', 'predicted_study_visit', 'cycle', 'day',
-            'predicted_next_visit_date'
+            'predicted_next_visit_date', 'processed_timestamp'
         ]
 
         # Keep only columns that exist
@@ -693,6 +760,12 @@ class DemandPlanningProcessor:
 
         # Merge and calculate requirements
         df_merged = self.merge_and_calculate(df_subjects, df_mapping)
+
+        # Handle country column after merge (may become country_x and country_y)
+        if 'country_x' in df_merged.columns:
+            df_merged.rename(columns={'country_x': 'country'}, inplace=True)
+        if 'country_y' in df_merged.columns and 'country' not in df_merged.columns:
+            df_merged.rename(columns={'country_y': 'country'}, inplace=True)
 
         # Aggregate by patient-medicine
         df_plan = self.aggregate_by_patient_medicine(df_merged)
