@@ -1,0 +1,760 @@
+#!/usr/bin/env python3
+"""
+Clinical Trial Demand Planning System
+======================================
+A refactored, debuggable version of the demand planning system that predicts
+when patients will need medication refills in clinical trials.
+
+This version uses CSV files instead of Databricks tables for local development and debugging.
+"""
+
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+from typing import Dict, List, Tuple, Optional, Any
+import re
+import logging
+from dataclasses import dataclass
+from pathlib import Path
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# DATA CLASSES FOR TYPE SAFETY
+# ============================================================================
+
+@dataclass
+class CycleInfo:
+    """Represents information about a patient's current cycle"""
+    cycle_number: int
+    day_number: int
+    last_visit_date: pd.Timestamp
+
+
+@dataclass
+class ProjectedVisit:
+    """Represents a projected future visit"""
+    subject_number: int
+    medicine_name: str
+    cycle_number: int
+    cycle_day: int
+    visit_date: str
+    medicine_quantity: float
+    visit_description: str
+
+
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
+
+class Config:
+    """Configuration settings for the demand planning system"""
+
+    # File paths - Update these to match your local setup
+    # SUBJECT_SUMMARY_FILE = "test_scenarios/01_simple_single_drug/subject_summary.csv"
+    # TREATMENT_MAPPING_FILE = "test_scenarios/01_simple_single_drug/treatment_mapping.csv"
+    # OUTPUT_FILE = "test_scenarios/01_simple_single_drug/demand_forecast.csv"
+
+    SUBJECT_SUMMARY_FILE = "clinical_subject_summary.csv"
+    TREATMENT_MAPPING_FILE = "treatment_group_mapping.csv"
+    OUTPUT_FILE = "demand_forecast.csv"
+
+    # Column mappings for standardization
+    SUBJECT_COLUMNS = [
+        'study_protocol', 'site_id', 'country', 'parent_depot', 'investigator',
+        'subject_number', 'year_of_birth', 'gender', 'tpc', 'date_randomized',
+        'date_crossover_enrolled', 'date_crossover_approved',
+        'date_crossover_treatment_discontinued', 'subject_status',
+        'randomized_treatment', 'last_study_visit_recorded',
+        'last_study_visit_date', 'last_study_visit_number',
+        'next_min_study_visit_date', 'next_max_study_visit_date',
+        'additional_drug_status', 'last_additional_drug_visit_recorded',
+        'last_additional_drug_visit_date', 'last_additional_drug_visit_number',
+        'next_min_additional_drug_visit_date', 'next_max_additional_drug_visit_date',
+        'extract_date', 'source_file', 'processed_timestamp'
+    ]
+
+    MAPPING_COLUMNS = [
+        'study_protocol', 'randomized_treatment', 'subject_status', 'tpc',
+        'study_drug_dispensed', 'additional_study_drug_dispensed',
+        'additional_study_drug_prefix', 'country', 'visit_days',
+        'dispensing_quantity', 'dispensing_frequency_days', 'max_cycles'
+    ]
+
+    # Statuses that indicate a patient has stopped treatment
+    EXCLUDED_STATUSES = [
+        "Screen Failed",
+        "Pre-Screened Failed",
+        "Treatment Discontinued",
+        "Crossover Treatment Discontinued"
+    ]
+
+    # Default values
+    DEFAULT_PROJECTION_DAYS = 365  # Project visits for one year ahead
+    DEFAULT_MAX_CYCLES = 50  # Maximum cycles if not specified
+
+
+# ============================================================================
+# DATA LOADING AND CLEANING
+# ============================================================================
+
+class DataLoader:
+    """Handles loading and initial cleaning of data files"""
+
+    @staticmethod
+    def load_subject_data(filepath: str) -> pd.DataFrame:
+        """
+        Load subject summary data from CSV file
+
+        Args:
+            filepath: Path to the subject summary CSV file
+
+        Returns:
+            Cleaned subject DataFrame
+        """
+        logger.info(f"Loading subject data from {filepath}")
+
+        try:
+            df = pd.read_csv(filepath)
+            logger.info(f"Loaded {len(df)} subject records")
+
+            # Select only required columns if they exist
+            available_cols = [col for col in Config.SUBJECT_COLUMNS if col in df.columns]
+            df = df[available_cols]
+
+            # Convert date columns
+            date_columns = [col for col in df.columns if 'date' in col.lower()]
+            for col in date_columns:
+                df[col] = pd.to_datetime(df[col], errors='coerce')
+
+            # Clean column names
+            df.columns = df.columns.str.strip()
+
+            return df
+
+        except Exception as e:
+            logger.error(f"Error loading subject data: {e}")
+            raise
+
+    @staticmethod
+    def load_mapping_data(filepath: str) -> pd.DataFrame:
+        """
+        Load treatment mapping data from CSV file
+
+        Args:
+            filepath: Path to the treatment mapping CSV file
+
+        Returns:
+            Cleaned mapping DataFrame
+        """
+        logger.info(f"Loading treatment mapping data from {filepath}")
+
+        try:
+            df = pd.read_csv(filepath)
+            logger.info(f"Loaded {len(df)} mapping records")
+
+            # Select only required columns if they exist
+            available_cols = [col for col in Config.MAPPING_COLUMNS if col in df.columns]
+            df = df[available_cols]
+
+            # Clean column names
+            df.columns = df.columns.str.strip()
+
+            # Handle TPC column variations
+            for col in df.columns:
+                if "TPC" in col.upper():
+                    df.rename(columns={col: "tpc"}, inplace=True)
+                    break
+
+            return df
+
+        except Exception as e:
+            logger.error(f"Error loading mapping data: {e}")
+            raise
+
+
+# ============================================================================
+# TEXT PROCESSING UTILITIES
+# ============================================================================
+
+class TextProcessor:
+    """Utilities for text normalization and parsing"""
+
+    @staticmethod
+    def normalize_text(text: Any) -> str:
+        """
+        Normalize text for consistent matching
+
+        Args:
+            text: Input text to normalize
+
+        Returns:
+            Normalized lowercase text with cleaned quotes
+        """
+        if pd.isna(text):
+            return str(text)
+
+        text = str(text)
+        # Replace smart quotes with regular quotes
+        text = text.replace("'", "'").replace(""", '"').replace(""", '"')
+        # Strip whitespace and convert to lowercase
+        return text.strip().lower()
+
+    @staticmethod
+    def parse_cycle_day(visit_string: str) -> int:
+        """
+        Parse the day number from visit strings like 'TPC C20D1' or 'Cycle 46 Day 8'
+
+        Args:
+            visit_string: String describing the visit
+
+        Returns:
+            Day number (defaults to 1 if unparsable)
+        """
+        if pd.isna(visit_string):
+            return 1
+
+        visit_str = str(visit_string)
+
+        # Try to match patterns like D1, Day 1, Day1
+        match = re.search(r'(?:D|Day\s?)(\d+)', visit_str, re.IGNORECASE)
+        if match:
+            try:
+                return int(match.group(1))
+            except ValueError:
+                return 1
+
+        # If it's a cycle string without a day, assume day 1
+        if 'cycle' in visit_str.lower():
+            return 1
+
+        return 1
+
+    @staticmethod
+    def parse_cycle_number(visit_string: str) -> int:
+        """
+        Parse the cycle number from visit strings like 'TPC C20D1' or 'Cycle 46 Day 8'
+
+        Args:
+            visit_string: String describing the visit
+
+        Returns:
+            Cycle number (defaults to 0 if unparsable)
+        """
+        if pd.isna(visit_string):
+            return 0
+
+        visit_str = str(visit_string)
+
+        # Try to match patterns like C20, Cycle 46, Cycle46
+        match = re.search(r'(?:C|Cycle\s?)(\d+)', visit_str, re.IGNORECASE)
+        if match:
+            try:
+                return int(match.group(1))
+            except ValueError:
+                return 0
+
+        return 0
+
+    @staticmethod
+    def parse_visit_days(visit_days_str: str) -> List[int]:
+        """
+        Parse visit days from a comma-separated string
+
+        Args:
+            visit_days_str: String like "1,8,15" or "1, 8, 15"
+
+        Returns:
+            List of day numbers
+        """
+        if pd.isna(visit_days_str) or str(visit_days_str).lower() == 'nan':
+            return []
+
+        try:
+            days = str(visit_days_str).split(',')
+            return [int(day.strip()) for day in days if day.strip().isdigit()]
+        except Exception as e:
+            logger.warning(f"Could not parse visit days '{visit_days_str}': {e}")
+            return []
+
+
+# ============================================================================
+# VISIT PROJECTION ENGINE
+# ============================================================================
+
+class VisitProjector:
+    """Handles the projection of future visits for patients"""
+
+    def __init__(self, text_processor: TextProcessor):
+        self.text_processor = text_processor
+
+    def calculate_projection_parameters(self, row: pd.Series) -> Tuple[int, int, pd.Timestamp]:
+        """
+        Calculate starting parameters for projection
+
+        Args:
+            row: Patient data row
+
+        Returns:
+            Tuple of (last_cycle_number, last_day_number, last_visit_date)
+        """
+        # Parse the last recorded visit
+        last_cycle = self.text_processor.parse_cycle_number(row['last_study_visit_recorded'])
+        last_day = self.text_processor.parse_cycle_day(row['last_study_visit_recorded'])
+
+        # Handle additional drug visits if needed
+        if row['medicine_name'] == row.get('additional_study_drug_dispensed', ''):
+            alt_cycle = self.text_processor.parse_cycle_number(
+                row.get('last_additional_drug_visit_recorded', '')
+            )
+            alt_day = self.text_processor.parse_cycle_day(
+                row.get('last_additional_drug_visit_recorded', '')
+            )
+
+            if alt_cycle > last_cycle:
+                last_cycle = alt_cycle
+                last_day = alt_day
+
+        # Get the last visit date
+        last_visit_date = pd.to_datetime(row['last_study_visit_date'])
+        if pd.isna(last_visit_date):
+            last_visit_date = pd.Timestamp.now()
+
+        return last_cycle, last_day, last_visit_date
+
+    def project_future_visits(self, row: pd.Series) -> List[ProjectedVisit]:
+        """
+        Project future visits for a patient
+
+        Args:
+            row: Patient data row with merged treatment information
+
+        Returns:
+            List of ProjectedVisit objects
+        """
+        projected_visits = []
+
+        try:
+            # Get projection parameters
+            last_cycle, last_day, last_visit_date = self.calculate_projection_parameters(row)
+
+            # Get visit pattern and frequency
+            visit_days = self.text_processor.parse_visit_days(row.get('visit_days', ''))
+            if not visit_days:
+                visit_days = [1]  # Default to day 1 only
+
+            dispensing_frequency = row.get('dispensing_frequency_days', 28)
+            if pd.isna(dispensing_frequency):
+                dispensing_frequency = 28
+
+            max_cycles = row.get('max_cycles', Config.DEFAULT_MAX_CYCLES)
+            if pd.isna(max_cycles):
+                max_cycles = Config.DEFAULT_MAX_CYCLES
+
+            # Calculate when the current cycle started
+            current_cycle_start = last_visit_date - timedelta(days=last_day - 1)
+
+            # Determine starting point for projections
+            if last_cycle == 0:
+                next_cycle = 1
+                next_cycle_start = last_visit_date
+            else:
+                next_cycle = last_cycle + 1
+                next_cycle_start = current_cycle_start + timedelta(days=dispensing_frequency)
+
+            # Project future cycles
+            cycles_to_project = min(
+                int(Config.DEFAULT_PROJECTION_DAYS / dispensing_frequency) + 1,
+                int(max_cycles - next_cycle + 1)
+            )
+
+            for cycle_offset in range(max(0, cycles_to_project)):
+                current_cycle = next_cycle + cycle_offset
+
+                if current_cycle > max_cycles:
+                    break
+
+                cycle_start_date = next_cycle_start + timedelta(days=cycle_offset * dispensing_frequency)
+
+                # Project each visit day in the cycle
+                for day in visit_days:
+                    visit_date = cycle_start_date + timedelta(days=day - 1)
+
+                    # Determine the prefix for the visit description
+                    prefix = "TPC " if "tpc" in str(row.get('last_study_visit_recorded', '')).lower() else ""
+                    visit_description = f"{prefix}Cycle {current_cycle} Day {day}"
+
+                    projected_visit = ProjectedVisit(
+                        subject_number=int(row['subject_number']),
+                        medicine_name=row['medicine_name'],
+                        cycle_number=current_cycle,
+                        cycle_day=day,
+                        visit_date=visit_date.strftime('%Y-%m-%d'),
+                        medicine_quantity=row['total_medicines_required_per_cycle'],
+                        visit_description=visit_description
+                    )
+
+                    projected_visits.append(projected_visit)
+
+        except Exception as e:
+            logger.error(f"Error projecting visits for subject {row.get('subject_number', 'unknown')}: {e}")
+
+        return projected_visits
+
+
+# ============================================================================
+# MAIN DEMAND PLANNING PROCESSOR
+# ============================================================================
+
+class DemandPlanningProcessor:
+    """Main processor that orchestrates the demand planning workflow"""
+
+    def __init__(self):
+        self.data_loader = DataLoader()
+        self.text_processor = TextProcessor()
+        self.visit_projector = VisitProjector(self.text_processor)
+
+    def filter_active_subjects(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Filter to only include active subjects
+
+        Args:
+            df: Subject DataFrame
+
+        Returns:
+            Filtered DataFrame with only active subjects
+        """
+        logger.info("Filtering to active subjects only")
+
+        initial_count = len(df)
+        df_filtered = df[~df["subject_status"].isin(Config.EXCLUDED_STATUSES)]
+        final_count = len(df_filtered)
+
+        logger.info(f"Filtered from {initial_count} to {final_count} active subjects")
+        return df_filtered
+
+    def normalize_data(self, df_subjects: pd.DataFrame, df_mapping: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Normalize text fields in both DataFrames for consistent matching
+
+        Args:
+            df_subjects: Subject DataFrame
+            df_mapping: Treatment mapping DataFrame
+
+        Returns:
+            Tuple of normalized DataFrames
+        """
+        logger.info("Normalizing data for consistent matching")
+
+        # Define columns to normalize
+        normalize_columns = ["study_protocol", "randomized_treatment", "tpc", "country"]
+
+        # Normalize subject data
+        for col in normalize_columns:
+            if col in df_subjects.columns:
+                df_subjects[col] = df_subjects[col].apply(self.text_processor.normalize_text)
+
+        # Normalize mapping data
+        for col in normalize_columns:
+            if col in df_mapping.columns:
+                df_mapping[col] = df_mapping[col].apply(self.text_processor.normalize_text)
+
+        # Also normalize drug columns in mapping
+        drug_columns = ["study_drug_dispensed", "additional_study_drug_dispensed"]
+        for col in drug_columns:
+            if col in df_mapping.columns:
+                df_mapping[col] = df_mapping[col].apply(self.text_processor.normalize_text)
+
+        return df_subjects, df_mapping
+
+    def merge_and_calculate(self, df_subjects: pd.DataFrame, df_mapping: pd.DataFrame) -> pd.DataFrame:
+        """
+        Merge subject and mapping data, then calculate medicine requirements
+
+        Args:
+            df_subjects: Subject DataFrame
+            df_mapping: Treatment mapping DataFrame
+
+        Returns:
+            Merged DataFrame with calculated medicine requirements
+        """
+        logger.info("Merging subject and treatment mapping data")
+
+        # Define merge keys
+        merge_keys = ["study_protocol", "randomized_treatment", "tpc", "subject_status"]
+
+        # Perform inner merge
+        df_merged = pd.merge(df_subjects, df_mapping, on=merge_keys, how="inner")
+        logger.info(f"Merged resulted in {len(df_merged)} records")
+
+        # Calculate visit count per cycle
+        def count_visits(visit_days_str):
+            visits = self.text_processor.parse_visit_days(visit_days_str)
+            return len(visits) if visits else 0
+
+        df_merged["visit_count_per_cycle"] = df_merged["visit_days"].apply(count_visits)
+
+        # Calculate total medicines required per cycle
+        df_merged["total_medicines_required_per_cycle"] = (
+                df_merged["visit_count_per_cycle"] * df_merged["dispensing_quantity"]
+        )
+
+        # Identify the specific medicine for each row
+        df_merged["medicine_name"] = np.where(
+            df_merged["study_drug_dispensed"] != "nan",
+            df_merged["study_drug_dispensed"],
+            df_merged["additional_study_drug_dispensed"]
+        )
+
+        # Filter out rows without a medicine
+        df_result = df_merged[df_merged["medicine_name"] != "nan"].copy()
+        logger.info(f"Identified {len(df_result)} records with valid medicines")
+
+        # Add parsed visit information for easier processing
+        df_result['parsed_last_visit_cycle'] = df_result['last_study_visit_recorded'].apply(
+            self.text_processor.parse_cycle_number
+        )
+        df_result['parsed_last_visit_day'] = df_result['last_study_visit_recorded'].apply(
+            self.text_processor.parse_cycle_day
+        )
+
+        return df_result
+
+    def aggregate_by_patient_medicine(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Aggregate data by patient and medicine combination
+
+        Args:
+            df: DataFrame with calculated medicine requirements
+
+        Returns:
+            Aggregated DataFrame with one row per patient-medicine combination
+        """
+        logger.info("Aggregating by patient and medicine")
+
+        # Define aggregation
+        id_cols = ["subject_number", "medicine_name"]
+
+        # Columns to sum
+        sum_cols = ["total_medicines_required_per_cycle"]
+
+        # All other columns - take the first value
+        other_cols = [col for col in df.columns if col not in id_cols + sum_cols]
+
+        agg_dict = {col: 'first' for col in other_cols}
+        agg_dict.update({col: 'sum' for col in sum_cols})
+
+        df_aggregated = df.groupby(id_cols, dropna=False).agg(agg_dict).reset_index()
+
+        logger.info(f"Aggregated to {len(df_aggregated)} patient-medicine combinations")
+        return df_aggregated
+
+    def project_all_visits(self, df_plan: pd.DataFrame) -> pd.DataFrame:
+        """
+        Project future visits for all patients
+
+        Args:
+            df_plan: Aggregated patient-medicine DataFrame
+
+        Returns:
+            DataFrame with all projected visits
+        """
+        logger.info("Projecting future visits for all patients")
+
+        all_visits = []
+        error_subjects = []
+
+        total_rows = len(df_plan)
+
+        for idx, row in df_plan.iterrows():
+            if idx % 100 == 0:
+                logger.info(f"Processing row {idx}/{total_rows}")
+
+            try:
+                visits = self.visit_projector.project_future_visits(row)
+
+                # Convert ProjectedVisit objects to dictionaries
+                for visit in visits:
+                    all_visits.append({
+                        'subject_number': visit.subject_number,
+                        'medicine_name': visit.medicine_name,
+                        'cycle': visit.cycle_number,
+                        'day': visit.cycle_day,
+                        'predicted_next_visit_date': visit.visit_date,
+                        'total_medicine_required_forecast': visit.medicine_quantity,
+                        'predicted_study_visit': visit.visit_description
+                    })
+
+            except Exception as e:
+                error_subjects.append(row['subject_number'])
+                logger.error(f"Error projecting visits for subject {row['subject_number']}: {e}")
+
+        if error_subjects:
+            logger.warning(f"Encountered errors for {len(set(error_subjects))} subjects")
+
+        df_visits = pd.DataFrame(all_visits)
+        logger.info(f"Generated {len(df_visits)} projected visits")
+
+        return df_visits
+
+    def prepare_final_output(self, df_visits: pd.DataFrame, df_plan: pd.DataFrame) -> pd.DataFrame:
+        """
+        Prepare the final output by merging projections with patient details
+
+        Args:
+            df_visits: DataFrame with projected visits
+            df_plan: Original patient-medicine plan DataFrame
+
+        Returns:
+            Final formatted DataFrame ready for output
+        """
+        logger.info("Preparing final output")
+
+        # Define columns to keep from the plan
+        plan_columns = [
+            'subject_number', 'site_id', 'parent_depot', 'subject_status',
+            'randomized_treatment', 'tpc', 'medicine_name',
+            'study_protocol', 'visit_days', 'visit_count_per_cycle',
+            'dispensing_quantity', 'dispensing_frequency_days', 'date_randomized',
+            'last_study_visit_recorded', 'last_study_visit_date',
+            'last_study_visit_number', 'total_medicines_required_per_cycle',
+            'study_drug_dispensed', 'additional_study_drug_dispensed',
+            'parsed_last_visit_cycle', 'parsed_last_visit_day'
+        ]
+
+        # Keep only columns that exist
+        plan_columns = [col for col in plan_columns if col in df_plan.columns]
+
+        # Merge projections with plan details
+        df_final = pd.merge(
+            df_visits,
+            df_plan[plan_columns],
+            on=['subject_number', 'medicine_name'],
+            how='left'
+        )
+
+        # Rename columns for final output
+        df_final.rename(columns={
+            'study_protocol': 'study_name',
+            'medicine_name': 'drug_dispensed'
+        }, inplace=True)
+
+        # Define final column order
+        final_columns = [
+            'study_name', 'parent_depot', 'site_id', 'subject_number',
+            'subject_status', 'randomized_treatment', 'tpc', 'drug_dispensed',
+            'dispensing_quantity', 'predicted_study_visit', 'cycle', 'day',
+            'predicted_next_visit_date'
+        ]
+
+        # Keep only columns that exist
+        final_columns = [col for col in final_columns if col in df_final.columns]
+        df_final = df_final[final_columns]
+
+        # Sort for better readability
+        df_final = df_final.sort_values(
+            by=['study_name', 'parent_depot', 'site_id', 'subject_number', 'cycle', 'day']
+        )
+
+        logger.info(f"Final output contains {len(df_final)} records")
+        return df_final
+
+    def run(self, subject_file: str, mapping_file: str, output_file: str) -> pd.DataFrame:
+        """
+        Run the complete demand planning process
+
+        Args:
+            subject_file: Path to subject summary CSV
+            mapping_file: Path to treatment mapping CSV
+            output_file: Path for output CSV
+
+        Returns:
+            Final demand forecast DataFrame
+        """
+        logger.info("=" * 60)
+        logger.info("Starting Demand Planning Process")
+        logger.info("=" * 60)
+
+        # Load data
+        df_subjects = self.data_loader.load_subject_data(subject_file)
+        df_mapping = self.data_loader.load_mapping_data(mapping_file)
+
+        # Filter to active subjects
+        df_subjects = self.filter_active_subjects(df_subjects)
+
+        # Normalize data
+        df_subjects, df_mapping = self.normalize_data(df_subjects, df_mapping)
+
+        # Merge and calculate requirements
+        df_merged = self.merge_and_calculate(df_subjects, df_mapping)
+
+        # Aggregate by patient-medicine
+        df_plan = self.aggregate_by_patient_medicine(df_merged)
+
+
+
+        # Project future visits
+        df_visits = self.project_all_visits(df_plan)
+
+        # Prepare final output
+        df_final = self.prepare_final_output(df_visits, df_plan)
+
+        # Save to file
+        logger.info(f"Saving results to {output_file}")
+        df_final.to_csv(output_file, index=False)
+
+        logger.info("=" * 60)
+        logger.info("Demand Planning Process Complete")
+        logger.info("=" * 60)
+
+        return df_final
+
+
+# ============================================================================
+# MAIN EXECUTION
+# ============================================================================
+
+def main():
+    """Main execution function"""
+
+    # Initialize the processor
+    processor = DemandPlanningProcessor()
+
+    # Define file paths
+    subject_file = Config.SUBJECT_SUMMARY_FILE
+    mapping_file = Config.TREATMENT_MAPPING_FILE
+    output_file = Config.OUTPUT_FILE
+
+    try:
+        # Run the process
+        result_df = processor.run(subject_file, mapping_file, output_file)
+
+        # Display summary statistics
+        print("\n" + "=" * 60)
+        print("SUMMARY STATISTICS")
+        print("=" * 60)
+        print(f"Total projected visits: {len(result_df)}")
+        print(f"Unique patients: {result_df['subject_number'].nunique()}")
+        print(f"Unique drugs: {result_df['drug_dispensed'].nunique()}")
+        print(
+            f"Date range: {result_df['predicted_next_visit_date'].min()} to {result_df['predicted_next_visit_date'].max()}")
+
+        # Display first few rows
+        print("\n" + "=" * 60)
+        print("SAMPLE OUTPUT (First 10 rows)")
+        print("=" * 60)
+        print(result_df.head(10).to_string())
+
+    except Exception as e:
+        logger.error(f"Failed to complete demand planning: {e}")
+        raise
+
+
+if __name__ == "__main__":
+    main()

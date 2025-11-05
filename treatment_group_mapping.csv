@@ -1,0 +1,111 @@
+study_protocol,randomized_treatment,subject_status,tpc,study_drug_dispensed,additional_study_drug_dispensed,additional_study_drug_prefix,country,visit_days,dispensing_quantity,dispensing_frequency_days,max_cycles
+GS-US-592-6173,Sacituzumab Govitecan plus Pembrolizumab,Randomized,null,Sacituzumab Govitecan,null,null,null,"1,8",4,21,null
+GS-US-592-6173,Sacituzumab Govitecan plus Pembrolizumab,Randomized,null,null,Pembrolizumab,Pembro,null,1,2,21,35
+GS-US-592-6173,Treatment of Physician's Choice plus Pembrolizumab,Randomized,Nab-Paclitaxel 100 mg/m2,Nab-Paclitaxel,null,null,null,"1,8,15",2,28,null
+GS-US-592-6173,Treatment of Physician's Choice plus Pembrolizumab,Randomized,Nab-Paclitaxel 100 mg/m2,null,Pembrolizumab,Pembro,null,1,2,21,35
+GS-US-592-6173,Treatment of Physician's Choice plus Pembrolizumab,Randomized,Paclitaxel 90 mg/m2,Paclitaxel,null,null,null,"1,8,15",2,28,null
+GS-US-592-6173,Treatment of Physician's Choice plus Pembrolizumab,Randomized,Paclitaxel 90 mg/m2,null,Pembrolizumab,Pembro,null,1,2,21,35
+GS-US-592-6173,Treatment of Physician's Choice plus Pembrolizumab,Randomized,Gemcitabine 1000 mg/m2 & Carboplatin AUC 2,Gemcitabine,null,null,null,"1,8",1,21,null
+GS-US-592-6173,Treatment of Physician's Choice plus Pembrolizumab,Randomized,Gemcitabine 1000 mg/m2 & Carboplatin AUC 2,Carboplatin,null,null,null,"1,8",1,21,null
+GS-US-592-6173,Treatment of Physician's Choice plus Pembrolizumab,Randomized,Gemcitabine 1000 mg/m2 & Carboplatin AUC 2,null,Pembrolizumab,Pembro,null,1,2,21,35
+GS-US-592-6173,Treatment of Physician's Choice plus Pembrolizumab,Crossover Approved,Nab-Paclitaxel 100 mg/m2,Sacituzumab Govitecan,null,null,null,"1,8",4,21,null
+GS-US-592-6173,Treatment of Physician's Choice plus Pembrolizumab,Crossover Approved,Paclitaxel 90 mg/m2,Sacituzumab Govitecan,null,null,null,"1,8",4,21,null
+GS-US-592-6173,Treatment of Physician's Choice plus Pembrolizumab,Crossover Approved,Gemcitabine 1000 mg/m2 & Carboplatin AUC 2,Sacituzumab Govitecan,null,null,null,"1,8",4,21,null
+GS-US-592-6238,Sacituzumab Govitecan 10 mg/kg,Randomized,null,Sacituzumab Govitecan,null,null,null,"1,8",4,21,null
+GS-US-592-6238,Treatment of Physician's Choice,Randomized,Nab-Paclitaxel 100 mg/m2,Nab-Paclitaxel,null,null,null,"1,8,15",2,28,null
+GS-US-592-6238,Treatment of Physician's Choice,Randomized,Paclitaxel 90 mg/m2,Paclitaxel,null,null,null,"1,8,15",2,28,null
+GS-US-592-6238,Treatment of Physician's Choice,Randomized,Gemcitabine 1000 mg/m2 & Carboplatin AUC 2,Gemcitabine,null,null,null,"1,8",1,21,null
+GS-US-592-6238,Treatment of Physician's Choice,Randomized,Gemcitabine 1000 mg/m2 & Carboplatin AUC 2,Carboplatin,null,null,null,"1,8",1,21,null
+GS-US-592-6238,Treatment of Physician's Choice,Crossover Approved,Nab-Paclitaxel 100 mg/m2,Sacituzumab Govitecan,null,null,null,"1,8",4,21,null
+GS-US-592-6238,Treatment of Physician's Choice,Crossover Approved,Paclitaxel 90 mg/m2,Sacituzumab Govitecan,null,null,null,"1,8",4,21,null
+GS-US-592-6238,Treatment of Physician's Choice,Crossover Approved,Gemcitabine 1000 mg/m2 & Carboplatin AUC 2,Sacituzumab Govitecan,null,null,null,"1,8",4,21,null
+GS-US-682-6769,Sacituzumab Govitecan 10 mg/kg,Randomized,Paclitaxel 80 mg/m2,SacituzumabGovitecan,null,null,null,"1,8",4,21,null
+GS-US-682-6769,Sacituzumab Govitecan 10 mg/kg,Randomized,Doxorubicin 60 mg/m2,SacituzumabGovitecan,null,null,null,"1,8",4,21,null
+GS-US-682-6769,Treatment of Physician’s Choice,Randomized,Paclitaxel 80 mg/m2,Paclitaxel 100 mg/vial,null,null,null,"1,8,15",2,28,null
+GS-US-682-6769,Treatment of Physician’s Choice,Randomized,Doxorubicin 60 mg/m2,Doxorubicin 50 mg/vial,null,null,null,1,3,21,null
+GS-US-682-6769,Treatment of Physician’s Choice,Randomized,Doxorubicin 60 mg/m2,China - Doxorubicin 10mg/vial,null,null,China,1,11,21,null
+GS-US-600-6165,Treatment Group A:Sacituzumab Govitecan (SG),Randomized,null,Sacituzumab Govitecan,null,null,null,"1,8",4,21,null
+GS-US-600-6165,Treatment Group B:Topotecan,Randomized,Topotecan,Topotecan 4mg,null,null,null,"1,2,3,4,5",1,21,null
+GS-US-600-6165,Treatment Group B:Topotecan,Randomized,Topotecan,China-Topotecan 2mg,null,null,China,"1,2,3,4,5",2,21,null
+GS-US-600-6165,Treatment Group B:Topotecan,Randomized,Amrubicin,Japan-Amrubicin 20mg,null,null,Japan,"1,2,3",4,21,null
+GS-US-598-6168,Sacituzumab Govitecan,Randomized,Paclitaxel 80 mg/m2,Sacituzumab Govitecan,null,null,null,"1,8",4,21,null
+GS-US-598-6168,Sacituzumab Govitecan,Randomized,Nab-Paclitaxel 100 mg/m2,Sacituzumab Govitecan,null,null,null,"1,8",4,21,null
+GS-US-598-6168,Sacituzumab Govitecan,Randomized,Capecitabine 1000 mg/m2,Sacituzumab Govitecan,null,null,null,"1,8",4,21,null
+GS-US-598-6168,Sacituzumab Govitecan,Randomized,Capecitabine 1250 mg/m2,Sacituzumab Govitecan,null,null,null,"1,8",4,21,null
+GS-US-598-6168,Treatment of Physician Choice,Randomized,Paclitaxel 80 mg/m2,Paclitaxel (100 mg/vial),null,null,null,"1,8,15",2,28,null
+GS-US-598-6168,Treatment of Physician Choice,Randomized,Nab-Paclitaxel 100 mg/m2,nab-Paclitaxel (100 mg/vial),null,null,null,"1,8,15",2,28,null
+GS-US-598-6168,Treatment of Physician Choice,Randomized,Capecitabine 1000 mg/m2,"Capecitabine 150mg, 60 ct.",null,null,null,1,4,21,null
+GS-US-598-6168,Treatment of Physician Choice,Randomized,Capecitabine 1000 mg/m2,"Capecitabine 500mg, 120 ct.",null,null,null,1,1,21,null
+GS-US-598-6168,Treatment of Physician Choice,Randomized,Capecitabine 1250 mg/m2,"Capecitabine 150mg, 60 ct.",null,null,null,1,4,21,null
+GS-US-598-6168,Treatment of Physician Choice,Randomized,Capecitabine 1250 mg/m2,"Capecitabine 500mg, 120 ct.",null,null,null,1,1,21,null
+GS-US-595-6184,Arm A: SG & Pembro,Randomized,Pembrolizumab and capecitabine,Sacituzumab Govitecan,null,null,null,"1,8",4,21,8
+null,Arm A: SG & Pembro,Randomized,Pembrolizumab and capecitabine,Pembrolizumab,null,null,null,1,2,21,8
+null,Arm A: SG & Pembro,Randomized,Pembrolizumab monotherapy,Sacituzumab Govitecan,null,null,null,"1,8",4,21,8
+null,Arm A: SG & Pembro,Randomized,Pembrolizumab monotherapy,Pembrolizumab,null,null,null,1,2,21,8
+null,Arm B: TPC,Randomized,Pembrolizumab and capecitabine,Pembrolizumab,null,null,null,1,2,21,8
+null,Arm B: TPC,Randomized,Pembrolizumab and capecitabine,Capecitabine 150mg,null,null,null,1,4,21,8
+null,Arm B: TPC,Randomized,Pembrolizumab and capecitabine,Capecitabine 500mg,null,null,null,1,1,21,8
+null,Arm B: TPC,Randomized,Pembrolizumab monotherapy,Pembrolizumab,null,null,null,1,2,21,8
+GS-US-577-6153,Sacituzumab Govitecan (Investigational Arm A),Randomized,null,Sacituzumab Govitecan,null,null,null,"1,8",4,21,null
+null,Docetaxel (Control Arm B),Randomized,null,Docetaxel,null,null,null,1,1,21,null
+GS-US-626-6216,PEMBRO + Chemotherapy,Randomized,Carboplatin and Nab-Paclitaxel,Pembrolizumab 25mg/mL,null,null,null,1,2,21,35
+GS-US-626-6216,PEMBRO + Chemotherapy,Randomized,Carboplatin and Nab-Paclitaxel,Carboplatin 10mg/mL,null,null,null,1,2,21,4
+GS-US-626-6216,PEMBRO + Chemotherapy,Randomized,Carboplatin and Nab-Paclitaxel,Carboplatin 150mg (10mg/mL),null,null,China,1,6,21,4
+GS-US-626-6216,PEMBRO + Chemotherapy,Randomized,Carboplatin and Nab-Paclitaxel,Nab-Paclitaxel 5mg/mL,null,null,null,"1,8,15",2,21,4
+GS-US-626-6216,PEMBRO + Chemotherapy,Randomized,Carboplatin and Paclitaxel,Pembrolizumab 25mg/mL,null,null,null,1,2,21,35
+GS-US-626-6216,PEMBRO + Chemotherapy,Randomized,Carboplatin and Paclitaxel,Carboplatin 10mg/mL,null,null,null,1,2,21,4
+GS-US-626-6216,PEMBRO + Chemotherapy,Randomized,Carboplatin and Paclitaxel,Carboplatin 150mg (10mg/mL),null,null,China,1,6,21,4
+GS-US-626-6216,PEMBRO + Chemotherapy,Randomized,Carboplatin and Paclitaxel,Paclitaxel 6mg/mL,null,null,null,1,4,21,4
+GS-US-626-6216,PEMBRO + Chemotherapy,Randomized,Carboplatin and Pemetrexed,Pembrolizumab 25mg/mL,null,null,null,1,2,21,35
+GS-US-626-6216,PEMBRO + Chemotherapy,Randomized,Carboplatin and Pemetrexed,Carboplatin 10mg/mL,null,null,null,1,2,21,4
+GS-US-626-6216,PEMBRO + Chemotherapy,Randomized,Carboplatin and Pemetrexed,Carboplatin 150mg (10mg/mL),null,null,China,1,6,21,4
+GS-US-626-6216,PEMBRO + Chemotherapy,Randomized,Carboplatin and Pemetrexed,Pemetrexed 500mg,null,null,null,1,3,21,null
+GS-US-626-6216,PEMBRO + Chemotherapy,Randomized,Carboplatin and Pemetrexed,Pemetrexed 200mg,null,null,China,1,6,21,null
+GS-US-626-6216,PEMBRO + Chemotherapy,Randomized,Cisplatin and Pemetrexed,Pembrolizumab 25mg/mL,null,null,null,1,2,21,35
+GS-US-626-6216,PEMBRO + Chemotherapy,Randomized,Cisplatin and Pemetrexed,Cisplatin 1mg/mL,null,null,null,1,2,21,4
+GS-US-626-6216,PEMBRO + Chemotherapy,Randomized,Cisplatin and Pemetrexed,Cisplatin 50mg (1mg/mL),null,null,China,1,3,21,4
+GS-US-626-6216,PEMBRO + Chemotherapy,Randomized,Cisplatin and Pemetrexed,Pemetrexed 500mg,null,null,null,1,3,21,null
+GS-US-626-6216,PEMBRO + Chemotherapy,Randomized,Cisplatin and Pemetrexed,Pemetrexed 200mg,null,null,China,1,6,21,null
+GS-US-626-6216,ZIM + Chemotherapy,Randomized,Carboplatin and Nab-Paclitaxel,Zimberelimab 30mg/mL,null,null,null,1,3,21,35
+GS-US-626-6216,ZIM + Chemotherapy,Randomized,Carboplatin and Nab-Paclitaxel,Carboplatin 10mg/mL,null,null,null,1,2,21,4
+GS-US-626-6216,ZIM + Chemotherapy,Randomized,Carboplatin and Nab-Paclitaxel,Carboplatin 150mg (10mg/mL),null,null,China,1,6,21,4
+GS-US-626-6216,ZIM + Chemotherapy,Randomized,Carboplatin and Nab-Paclitaxel,Nab-Paclitaxel 5mg/mL,null,null,null,"1,8,15",2,21,4
+GS-US-626-6216,ZIM + Chemotherapy,Randomized,Carboplatin and Paclitaxel,Zimberelimab 30mg/mL,null,null,null,1,3,21,35
+GS-US-626-6216,ZIM + Chemotherapy,Randomized,Carboplatin and Paclitaxel,Carboplatin 10mg/mL,null,null,null,1,2,21,4
+GS-US-626-6216,ZIM + Chemotherapy,Randomized,Carboplatin and Paclitaxel,Carboplatin 150mg (10mg/mL),null,null,China,1,6,21,4
+GS-US-626-6216,ZIM + Chemotherapy,Randomized,Carboplatin and Paclitaxel,Paclitaxel 6mg/mL,null,null,null,1,4,21,4
+GS-US-626-6216,ZIM + Chemotherapy,Randomized,Carboplatin and Pemetrexed,Zimberelimab 30mg/mL,null,null,null,1,3,21,35
+GS-US-626-6216,ZIM + Chemotherapy,Randomized,Carboplatin and Pemetrexed,Carboplatin 10mg/mL,null,null,null,1,2,21,4
+GS-US-626-6216,ZIM + Chemotherapy,Randomized,Carboplatin and Pemetrexed,Carboplatin 150mg (10mg/mL),null,null,China,1,6,21,4
+GS-US-626-6216,ZIM + Chemotherapy,Randomized,Carboplatin and Pemetrexed,Pemetrexed 500mg,null,null,null,1,3,21,null
+GS-US-626-6216,ZIM + Chemotherapy,Randomized,Carboplatin and Pemetrexed,Pemetrexed 200mg,null,null,China,1,6,21,null
+GS-US-626-6216,ZIM + Chemotherapy,Randomized,Cisplatin and Pemetrexed,Zimberelimab 30mg/mL,null,null,null,1,3,21,35
+GS-US-626-6216,ZIM + Chemotherapy,Randomized,Cisplatin and Pemetrexed,Cisplatin 1mg/mL,null,null,null,1,2,21,4
+GS-US-626-6216,ZIM + Chemotherapy,Randomized,Cisplatin and Pemetrexed,Cisplatin 50mg (1mg/mL),null,null,China,1,3,21,4
+GS-US-626-6216,ZIM + Chemotherapy,Randomized,Cisplatin and Pemetrexed,Pemetrexed 500mg,null,null,null,1,3,21,null
+GS-US-626-6216,ZIM + Chemotherapy,Randomized,Cisplatin and Pemetrexed,Pemetrexed 200mg,null,null,China,1,6,21,null
+GS-US-626-6216,ZIM+DOM + Chemotherapy,Randomized,Carboplatin and Nab-Paclitaxel,Zimberelimab 30mg/mL,null,null,null,1,3,21,35
+GS-US-626-6216,ZIM+DOM + Chemotherapy,Randomized,Carboplatin and Nab-Paclitaxel,Domvanalimab 60mg/mL,null,null,null,1,4,21,35
+GS-US-626-6216,ZIM+DOM + Chemotherapy,Randomized,Carboplatin and Nab-Paclitaxel,Carboplatin 10mg/mL,null,null,null,1,2,21,4
+GS-US-626-6216,ZIM+DOM + Chemotherapy,Randomized,Carboplatin and Nab-Paclitaxel,Carboplatin 150mg (10mg/mL),null,null,China,1,6,21,4
+GS-US-626-6216,ZIM+DOM + Chemotherapy,Randomized,Carboplatin and Nab-Paclitaxel,Nab-Paclitaxel 5mg/mL,null,null,null,"1,8,15",2,21,4
+GS-US-626-6216,ZIM+DOM + Chemotherapy,Randomized,Carboplatin and Paclitaxel,Zimberelimab 30mg/mL,null,null,null,1,3,21,35
+GS-US-626-6216,ZIM+DOM + Chemotherapy,Randomized,Carboplatin and Paclitaxel,Domvanalimab 60mg/mL,null,null,null,1,4,21,35
+GS-US-626-6216,ZIM+DOM + Chemotherapy,Randomized,Carboplatin and Paclitaxel,Carboplatin 10mg/mL,null,null,null,1,2,21,4
+GS-US-626-6216,ZIM+DOM + Chemotherapy,Randomized,Carboplatin and Paclitaxel,Carboplatin 150mg (10mg/mL),null,null,China,1,6,21,4
+GS-US-626-6216,ZIM+DOM + Chemotherapy,Randomized,Carboplatin and Paclitaxel,Paclitaxel 6mg/mL,null,null,null,1,4,21,4
+GS-US-626-6216,ZIM+DOM + Chemotherapy,Randomized,Carboplatin and Pemetrexed,Zimberelimab 30mg/mL,null,null,null,1,3,21,35
+GS-US-626-6216,ZIM+DOM + Chemotherapy,Randomized,Carboplatin and Pemetrexed,Domvanalimab 60mg/mL,null,null,null,1,4,21,35
+GS-US-626-6216,ZIM+DOM + Chemotherapy,Randomized,Carboplatin and Pemetrexed,Carboplatin 10mg/mL,null,null,null,1,2,21,4
+GS-US-626-6216,ZIM+DOM + Chemotherapy,Randomized,Carboplatin and Pemetrexed,Carboplatin 150mg (10mg/mL),null,null,China,1,6,21,4
+GS-US-626-6216,ZIM+DOM + Chemotherapy,Randomized,Carboplatin and Pemetrexed,Pemetrexed 500mg,null,null,null,1,3,21,null
+GS-US-626-6216,ZIM+DOM + Chemotherapy,Randomized,Carboplatin and Pemetrexed,Pemetrexed 200mg,null,null,China,1,6,21,null
+GS-US-626-6216,ZIM+DOM + Chemotherapy,Randomized,Cisplatin and Pemetrexed,Zimberelimab 30mg/mL,null,null,null,1,3,21,35
+GS-US-626-6216,ZIM+DOM + Chemotherapy,Randomized,Cisplatin and Pemetrexed,Domvanalimab 60mg/mL,null,null,null,1,4,21,35
+GS-US-626-6216,ZIM+DOM + Chemotherapy,Randomized,Cisplatin and Pemetrexed,Cisplatin 1mg/mL,null,null,null,1,2,21,4
+GS-US-626-6216,ZIM+DOM + Chemotherapy,Randomized,Cisplatin and Pemetrexed,Cisplatin 50mg (1mg/mL),null,null,China,1,3,21,4
+GS-US-626-6216,ZIM+DOM + Chemotherapy,Randomized,Cisplatin and Pemetrexed,Pemetrexed 500mg,null,null,null,1,3,21,null
+GS-US-626-6216,ZIM+DOM + Chemotherapy,Randomized,Cisplatin and Pemetrexed,Pemetrexed 200mg,null,null,China,1,6,21,null
+GS-US-569-6172,Phase 2 HR+/HER2- mBC,Enrolled,null,Sacituzumab Govitecan,null,null,null,"1,8",4,21,null
+null,Phase 2 mTNBC,Enrolled,null,Sacituzumab Govitecan,null,null,null,"1,8",4,21,null
+null,Phase 2 mUC,Enrolled,null,Sacituzumab Govitecan,null,null,null,"1,8",4,21,null
