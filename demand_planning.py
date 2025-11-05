@@ -294,40 +294,6 @@ class VisitProjector:
     def __init__(self, text_processor: TextProcessor):
         self.text_processor = text_processor
 
-    def calculate_projection_parameters(self, row: pd.Series) -> Tuple[int, int, pd.Timestamp]:
-        """
-        Calculate starting parameters for projection
-
-        Args:
-            row: Patient data row
-
-        Returns:
-            Tuple of (last_cycle_number, last_day_number, last_visit_date)
-        """
-        # Parse the last recorded visit
-        last_cycle = self.text_processor.parse_cycle_number(row['last_study_visit_recorded'])
-        last_day = self.text_processor.parse_cycle_day(row['last_study_visit_recorded'])
-
-        # Handle additional drug visits if needed
-        if row['medicine_name'] == row.get('additional_study_drug_dispensed', ''):
-            alt_cycle = self.text_processor.parse_cycle_number(
-                row.get('last_additional_drug_visit_recorded', '')
-            )
-            alt_day = self.text_processor.parse_cycle_day(
-                row.get('last_additional_drug_visit_recorded', '')
-            )
-
-            if alt_cycle > last_cycle:
-                last_cycle = alt_cycle
-                last_day = alt_day
-
-        # Get the last visit date
-        last_visit_date = pd.to_datetime(row['last_study_visit_date'])
-        if pd.isna(last_visit_date):
-            last_visit_date = pd.Timestamp.now()
-
-        return last_cycle, last_day, last_visit_date
-
     def project_future_visits(self, row: pd.Series) -> List[ProjectedVisit]:
         """
         Project future visits for a patient
