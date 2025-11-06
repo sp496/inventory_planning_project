@@ -5,7 +5,41 @@ Clinical Trial Demand Planning System
 A refactored, debuggable version of the demand planning system that predicts
 when patients will need medication refills in clinical trials.
 
-This version uses CSV files instead of Databricks tables for local development and debugging.
+USAGE MODES:
+------------
+
+1. Databricks Notebook (with DataFrames):
+   ```python
+   from demand_planning import run_demand_planning
+
+   # Read from Delta tables
+   df_subjects = spark.table("clinical_subject_summary").toPandas()
+   df_mapping = spark.table("clinical_treatment_mapping").toPandas()
+
+   # Run demand planning
+   df_forecast = run_demand_planning(df_subjects, df_mapping)
+
+   # Convert back to Spark DataFrame if needed
+   spark_df = spark.createDataFrame(df_forecast)
+   ```
+
+2. Local Debugging (with CSV files):
+   ```bash
+   python demand_planning.py
+   ```
+   This will read from CSV files specified in Config class and save output to CSV.
+
+3. Programmatic usage with files:
+   ```python
+   from demand_planning import DemandPlanningProcessor
+
+   processor = DemandPlanningProcessor()
+   df_result = processor.run(
+       subject_file="path/to/subjects.csv",
+       mapping_file="path/to/mapping.csv",
+       output_file="path/to/output.csv"
+   )
+   ```
 """
 
 import pandas as pd
@@ -721,14 +755,21 @@ class DemandPlanningProcessor:
         logger.info(f"Final output contains {len(df_final)} records")
         return df_final
 
-    def run(self, subject_file: str, mapping_file: str, output_file: str) -> pd.DataFrame:
+    def run(self,
+            subject_file: Optional[str] = None,
+            mapping_file: Optional[str] = None,
+            output_file: Optional[str] = None,
+            df_subjects: Optional[pd.DataFrame] = None,
+            df_mapping: Optional[pd.DataFrame] = None) -> pd.DataFrame:
         """
         Run the complete demand planning process
 
         Args:
-            subject_file: Path to subject summary CSV
-            mapping_file: Path to treatment mapping CSV
-            output_file: Path for output CSV
+            subject_file: Path to subject summary CSV (used if df_subjects not provided)
+            mapping_file: Path to treatment mapping CSV (used if df_mapping not provided)
+            output_file: Path for output CSV (optional, if None will not save to file)
+            df_subjects: Subject DataFrame (if provided, subject_file is ignored)
+            df_mapping: Treatment mapping DataFrame (if provided, mapping_file is ignored)
 
         Returns:
             Final demand forecast DataFrame
@@ -737,9 +778,26 @@ class DemandPlanningProcessor:
         logger.info("Starting Demand Planning Process")
         logger.info("=" * 60)
 
-        # Load data
-        df_subjects = self.data_loader.load_subject_data(subject_file)
-        df_mapping = self.data_loader.load_mapping_data(mapping_file)
+        # Load data - either from dataframes or from files
+        if df_subjects is None:
+            if subject_file is None:
+                raise ValueError("Either df_subjects or subject_file must be provided")
+            logger.info(f"Loading subject data from file: {subject_file}")
+            df_subjects = self.data_loader.load_subject_data(subject_file)
+        else:
+            logger.info(f"Using provided subject DataFrame with {len(df_subjects)} records")
+            # Make a copy to avoid modifying the original
+            df_subjects = df_subjects.copy()
+
+        if df_mapping is None:
+            if mapping_file is None:
+                raise ValueError("Either df_mapping or mapping_file must be provided")
+            logger.info(f"Loading mapping data from file: {mapping_file}")
+            df_mapping = self.data_loader.load_mapping_data(mapping_file)
+        else:
+            logger.info(f"Using provided mapping DataFrame with {len(df_mapping)} records")
+            # Make a copy to avoid modifying the original
+            df_mapping = df_mapping.copy()
 
         # Filter to active subjects
         df_subjects = self.filter_active_subjects(df_subjects)
@@ -767,9 +825,12 @@ class DemandPlanningProcessor:
         # Prepare final output
         df_final = self.prepare_final_output(df_visits, df_plan)
 
-        # Save to file
-        logger.info(f"Saving results to {output_file}")
-        df_final.to_csv(output_file, index=False)
+        # Save to file (optional)
+        if output_file is not None:
+            logger.info(f"Saving results to {output_file}")
+            df_final.to_csv(output_file, index=False)
+        else:
+            logger.info("Output file not specified, skipping file save")
 
         logger.info("=" * 60)
         logger.info("Demand Planning Process Complete")
@@ -779,11 +840,48 @@ class DemandPlanningProcessor:
 
 
 # ============================================================================
-# MAIN EXECUTION
+# CONVENIENCE FUNCTIONS FOR NOTEBOOK USAGE
+# ============================================================================
+
+def run_demand_planning(df_subjects: pd.DataFrame,
+                        df_mapping: pd.DataFrame,
+                        output_file: Optional[str] = None) -> pd.DataFrame:
+    """
+    Convenience function for running demand planning from a notebook with dataframes
+
+    Usage in Databricks notebook:
+    ```python
+    from demand_planning import run_demand_planning
+
+    # Read your data (from Delta tables, CSV, etc.)
+    df_subjects = spark.table("your_subject_table").toPandas()
+    df_mapping = spark.table("your_mapping_table").toPandas()
+
+    # Run demand planning
+    df_forecast = run_demand_planning(df_subjects, df_mapping)
+
+    # Optionally save to CSV
+    df_forecast = run_demand_planning(df_subjects, df_mapping, output_file="output.csv")
+    ```
+
+    Args:
+        df_subjects: Subject summary DataFrame
+        df_mapping: Treatment mapping DataFrame
+        output_file: Optional path to save output CSV
+
+    Returns:
+        Final demand forecast DataFrame
+    """
+    processor = DemandPlanningProcessor()
+    return processor.run(df_subjects=df_subjects, df_mapping=df_mapping, output_file=output_file)
+
+
+# ============================================================================
+# MAIN EXECUTION (FOR LOCAL DEBUGGING)
 # ============================================================================
 
 def main():
-    """Main execution function"""
+    """Main execution function for local debugging with CSV files"""
 
     # Initialize the processor
     processor = DemandPlanningProcessor()
@@ -794,8 +892,10 @@ def main():
     output_file = Config.OUTPUT_FILE
 
     try:
-        # Run the process
-        result_df = processor.run(subject_file, mapping_file, output_file)
+        # Run the process with file paths
+        result_df = processor.run(subject_file=subject_file,
+                                  mapping_file=mapping_file,
+                                  output_file=output_file)
 
         # Display summary statistics
         print("\n" + "=" * 60)
