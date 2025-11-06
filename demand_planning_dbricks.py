@@ -279,14 +279,15 @@ def project_future_visits(row):
     is_tpc = row['Is TPC']
     max_cycles = row['max_cycles']
 
-    # Calculate how many full cycles are remaining to project
-    # Fallback to 5 cycles if Max Cycles is invalid, or 0 if current cycle is already past max.
-    if pd.isna(max_cycles) or max_cycles < 1:
-        cycles_to_project = 10  # Fallback
+    # Get max cycles (optional constraint - hard cap on cycle numbers)
+    if not pd.isna(max_cycles) and max_cycles >= 1:
+        max_cycles = int(max_cycles)
     else:
-        cycles_to_project = int(max_cycles) - current_cycle_number
-        if cycles_to_project < 0:
-            cycles_to_project = 0
+        max_cycles = None  # No cycle limit, only time limit applies
+
+    # Define projection horizon (365 days from today)
+    PROJECTION_DAYS = 365
+    projection_horizon = TODAY + timedelta(days=PROJECTION_DAYS)
 
     try:
         visit_days = sorted([int(day.strip()) for day in str(visit_days_str).split(',')])
@@ -307,14 +308,21 @@ def project_future_visits(row):
 
     projected_visits = []
 
-    # ------------------- A. PROJECT REMAINING VISITS IN CURRENT CYCLE (CORRECTED) -------------------
+    # ------------------- A. PROJECT REMAINING VISITS IN CURRENT CYCLE (TIME-BASED) -------------------
     remaining_days = [day for day in visit_days if day > last_day_number]
 
     for day in remaining_days:
         visit_date = last_cycle_day_1 + timedelta(days=day - 1)
 
-        # FIX: Check if the projected date is after the LAST RECORDED VISIT date.
-        if visit_date > last_visit_date:
+        # Only include if the projected date is:
+        # 1. After the last recorded visit
+        # 2. Within the projection horizon (next 365 days)
+        # 3. Within max_cycles if defined
+        if visit_date > last_visit_date and visit_date.date() <= projection_horizon:
+            # Check max_cycles constraint if defined
+            if max_cycles is not None and current_cycle_number > max_cycles:
+                continue
+
             recorded_forecast_str = f"{prefix}Cycle {current_cycle_number} Day {day}"
 
             projected_visits.append({
@@ -327,7 +335,7 @@ def project_future_visits(row):
                 'last_study_visit_recorded_forecast': recorded_forecast_str
             })
 
-    # ------------------- B. PROJECT NEXT FULL CYCLES (5 Cycles from the next Day 1) -------------------
+    # ------------------- B. PROJECT NEXT FULL CYCLES (TIME-BASED WITH MAX_CYCLES CAP) -------------------
 
     # Calculate the Day 1 of the NEXT cycle (The true Forecast Start Day 1)
     cycle_duration = timedelta(days=cycle_days)
@@ -344,33 +352,46 @@ def project_future_visits(row):
     # Determine the cycle number to start the future projection from
     start_cycle_number = current_cycle_number + 1
 
-    for cycle_offset in range(cycles_to_project):
+    # Project cycles until we exceed the time horizon
+    # Loop stops when visit dates exceed projection_horizon OR max_cycles is reached
+    cycle_offset = 0
+    while True:
         # Calculate the Day 1 of the current future forecast cycle
         current_cycle_day_1 = cycle_day_1 + timedelta(days=cycle_offset * cycle_days)
         current_projected_cycle = start_cycle_number + cycle_offset
 
-        # Check for Max Cycle flag
-        is_max_cycle = (max_cycles is not np.nan) and (current_projected_cycle == max_cycles)
+        # Check if we've exceeded max cycles (hard cap if defined)
+        if max_cycles is not None and current_projected_cycle > max_cycles:
+            break
+
+        # Check if any visit in this cycle is within the time horizon
+        any_visit_in_horizon = False
 
         for day in visit_days:
             # Day 1 is current_cycle_day_1. Offset by (day - 1)
             visit_date = current_cycle_day_1 + timedelta(days=day - 1)
 
-            # Safety check (redundant but harmless due to cycles_to_project calculation)
-            if max_cycles is not np.nan and current_projected_cycle > max_cycles:
-                continue
+            # Only include visits within the projection horizon
+            if visit_date.date() <= projection_horizon:
+                any_visit_in_horizon = True
 
-            recorded_forecast_str = f"{prefix}Cycle {current_projected_cycle} Day {day}"
+                recorded_forecast_str = f"{prefix}Cycle {current_projected_cycle} Day {day}"
 
-            projected_visits.append({
-                'subject_number': row['subject_number'],
-                'medicine_name': row['medicine_name'],
-                'Projected Cycle Number': current_projected_cycle,
-                'Cycle Day (Visit)': day,
-                'Projected Visit Date': visit_date.strftime('%Y-%m-%d'),
-                'total_medicine_required_forecast': row['total_medicines_required_per_cycle'],
-                'last_study_visit_recorded_forecast': recorded_forecast_str
-            })
+                projected_visits.append({
+                    'subject_number': row['subject_number'],
+                    'medicine_name': row['medicine_name'],
+                    'Projected Cycle Number': current_projected_cycle,
+                    'Cycle Day (Visit)': day,
+                    'Projected Visit Date': visit_date.strftime('%Y-%m-%d'),
+                    'total_medicine_required_forecast': row['total_medicines_required_per_cycle'],
+                    'last_study_visit_recorded_forecast': recorded_forecast_str
+                })
+
+        # If no visits in this cycle were within the horizon, we're done
+        if not any_visit_in_horizon:
+            break
+
+        cycle_offset += 1
 
     return projected_visits
 
