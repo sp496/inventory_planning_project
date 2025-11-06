@@ -673,7 +673,7 @@ class DemandPlanningProcessor:
 
         # Define columns to keep from the plan
         plan_columns = [
-            'subject_number', 'site_id', 'parent_depot', 'subject_status',
+            'subject_number', 'site_id', 'parent_depot', 'subject_status', 'subject_country',
             'randomized_treatment', 'tpc', 'medicine_name', 'country',
             'study_protocol', 'visit_days', 'visit_count_per_cycle',
             'dispensing_quantity', 'dispensing_frequency_days', 'date_randomized',
@@ -746,13 +746,14 @@ class DemandPlanningProcessor:
 
         # Normalize data
         df_subjects, df_mapping = self.normalize_data(df_subjects, df_mapping)
+        df_subjects = df_subjects[df_subjects['subject_number'] == 92465]
 
         # Merge and calculate requirements
         df_merged = self.merge_and_calculate(df_subjects, df_mapping)
 
         # Handle country column after merge (may become country_x and country_y)
         if 'country_x' in df_merged.columns:
-            df_merged.rename(columns={'country_x': 'country'}, inplace=True)
+            df_merged.rename(columns={'country_x': 'subject_country'}, inplace=True)
         if 'country_y' in df_merged.columns and 'country' not in df_merged.columns:
             df_merged.rename(columns={'country_y': 'country'}, inplace=True)
 
