@@ -96,8 +96,8 @@ class Config:
     ]
 
     # Default values
-    DEFAULT_PROJECTION_DAYS = 365  # Project visits for one year ahead
-    DEFAULT_MAX_CYCLES = 10  # Maximum cycles if not specified (fallback value)
+    DEFAULT_PROJECTION_DAYS = 365  # Project visits for one year ahead (primary constraint)
+    # Note: max_cycles from mapping is a secondary constraint (hard cap on cycle numbers)
 
 
 # ============================================================================
@@ -336,14 +336,12 @@ class VisitProjector:
             is_crossover = row.get('Is Crossover', False)
             is_tpc = row.get('Is TPC', False)
 
-            # Get max cycles with fallback
-            max_cycles = row.get('max_cycles', Config.DEFAULT_MAX_CYCLES)
-            if pd.isna(max_cycles) or max_cycles < 1:
-                cycles_to_project = Config.DEFAULT_MAX_CYCLES  # Fallback to 10
+            # Get max cycles (optional constraint - hard cap on cycle numbers)
+            max_cycles = row.get('max_cycles', None)
+            if not pd.isna(max_cycles) and max_cycles >= 1:
+                max_cycles = int(max_cycles)
             else:
-                cycles_to_project = int(max_cycles) - current_cycle_number
-                if cycles_to_project < 0:
-                    cycles_to_project = 0
+                max_cycles = None  # No cycle limit, only time limit applies
 
             # Calculate Day 1 of the last recorded cycle (current cycle)
             time_to_subtract = timedelta(days=last_day_number - 1)
@@ -357,8 +355,9 @@ class VisitProjector:
             else:
                 prefix = ""
 
-            # Get today's date for comparison
+            # Get today's date and projection horizon for time-based filtering
             TODAY = datetime.now().date()
+            projection_horizon = TODAY + timedelta(days=Config.DEFAULT_PROJECTION_DAYS)
 
             # ============================================================================
             # A. PROJECT REMAINING VISITS IN CURRENT CYCLE
@@ -368,8 +367,15 @@ class VisitProjector:
             for day in remaining_days:
                 visit_date = last_cycle_day_1 + timedelta(days=day - 1)
 
-                # Only include if the projected date is after the last recorded visit
-                if visit_date.date() > last_visit_date.date():
+                # Only include if the projected date is:
+                # 1. After the last recorded visit
+                # 2. Within the projection horizon (next 365 days)
+                # 3. Within max_cycles if defined
+                if visit_date.date() > last_visit_date.date() and visit_date.date() <= projection_horizon:
+                    # Check max_cycles constraint if defined
+                    if max_cycles is not None and current_cycle_number > max_cycles:
+                        continue
+
                     recorded_forecast_str = f"{prefix}Cycle {current_cycle_number} Day {day}"
 
                     projected_visit = ProjectedVisit(
@@ -385,7 +391,7 @@ class VisitProjector:
                     projected_visits.append(projected_visit)
 
             # ============================================================================
-            # B. PROJECT NEXT FULL CYCLES
+            # B. PROJECT NEXT FULL CYCLES (TIME-BASED WITH MAX_CYCLES CAP)
             # ============================================================================
 
             # Calculate Day 1 of the NEXT cycle
@@ -403,31 +409,48 @@ class VisitProjector:
             # Determine the cycle number to start the future projection from
             start_cycle_number = current_cycle_number + 1
 
-            for cycle_offset in range(cycles_to_project):
+            # Project cycles until we exceed the time horizon
+            # Loop stops when visit dates exceed projection_horizon OR max_cycles is reached
+            cycle_offset = 0
+            while True:
                 # Calculate Day 1 of the current future forecast cycle
                 current_cycle_day_1 = cycle_day_1 + timedelta(days=cycle_offset * cycle_days)
                 current_projected_cycle = start_cycle_number + cycle_offset
 
-                # Check if we've exceeded max cycles
-                if not pd.isna(max_cycles) and current_projected_cycle > max_cycles:
+                # Check if we've exceeded max cycles (hard cap if defined)
+                if max_cycles is not None and current_projected_cycle > max_cycles:
                     break
+
+                # Check if the first day of this cycle exceeds our time horizon
+                # If so, we still need to check individual visit days in case some are within horizon
+                any_visit_in_horizon = False
 
                 for day in visit_days:
                     visit_date = current_cycle_day_1 + timedelta(days=day - 1)
 
-                    recorded_forecast_str = f"{prefix}Cycle {current_projected_cycle} Day {day}"
+                    # Only include visits within the projection horizon
+                    if visit_date.date() <= projection_horizon:
+                        any_visit_in_horizon = True
 
-                    projected_visit = ProjectedVisit(
-                        subject_number=int(row['subject_number']),
-                        medicine_name=row['medicine_name'],
-                        cycle_number=current_projected_cycle,
-                        cycle_day=day,
-                        visit_date=visit_date.strftime('%Y-%m-%d'),
-                        medicine_quantity=row['total_medicines_required_per_cycle'],
-                        visit_description=recorded_forecast_str
-                    )
+                        recorded_forecast_str = f"{prefix}Cycle {current_projected_cycle} Day {day}"
 
-                    projected_visits.append(projected_visit)
+                        projected_visit = ProjectedVisit(
+                            subject_number=int(row['subject_number']),
+                            medicine_name=row['medicine_name'],
+                            cycle_number=current_projected_cycle,
+                            cycle_day=day,
+                            visit_date=visit_date.strftime('%Y-%m-%d'),
+                            medicine_quantity=row['total_medicines_required_per_cycle'],
+                            visit_description=recorded_forecast_str
+                        )
+
+                        projected_visits.append(projected_visit)
+
+                # If no visits in this cycle were within the horizon, we're done
+                if not any_visit_in_horizon:
+                    break
+
+                cycle_offset += 1
 
         except Exception as e:
             logger.error(f"Error projecting visits for subject {row.get('subject_number', 'unknown')}: {e}")
