@@ -142,6 +142,63 @@ class DataLoader:
     """Handles loading and initial cleaning of data files"""
 
     @staticmethod
+    def prepare_subject_data(df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Prepare and clean subject summary data
+
+        Args:
+            df: Raw subject DataFrame
+
+        Returns:
+            Cleaned subject DataFrame
+        """
+        logger.info(f"Preparing subject data ({len(df)} records)")
+
+        # Clean column names first
+        df.columns = df.columns.str.strip()
+
+        # Select only required columns if they exist
+        available_cols = [col for col in Config.SUBJECT_COLUMNS if col in df.columns]
+        df = df[available_cols]
+
+        # Convert date columns
+        date_columns = [col for col in df.columns if 'date' in col.lower()]
+        for col in date_columns:
+            df[col] = pd.to_datetime(df[col], errors='coerce')
+
+        logger.info(f"Prepared {len(df)} subject records")
+        return df
+
+    @staticmethod
+    def prepare_mapping_data(df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Prepare and clean treatment mapping data
+
+        Args:
+            df: Raw mapping DataFrame
+
+        Returns:
+            Cleaned mapping DataFrame
+        """
+        logger.info(f"Preparing mapping data ({len(df)} records)")
+
+        # Clean column names first
+        df.columns = df.columns.str.strip()
+
+        # Select only required columns if they exist
+        available_cols = [col for col in Config.MAPPING_COLUMNS if col in df.columns]
+        df = df[available_cols]
+
+        # Handle TPC column variations
+        for col in df.columns:
+            if "TPC" in col.upper():
+                df.rename(columns={col: "tpc"}, inplace=True)
+                break
+
+        logger.info(f"Prepared {len(df)} mapping records")
+        return df
+
+    @staticmethod
     def load_subject_data(filepath: str) -> pd.DataFrame:
         """
         Load subject summary data from CSV file
@@ -156,21 +213,8 @@ class DataLoader:
 
         try:
             df = pd.read_csv(filepath)
-            logger.info(f"Loaded {len(df)} subject records")
-
-            # Select only required columns if they exist
-            available_cols = [col for col in Config.SUBJECT_COLUMNS if col in df.columns]
-            df = df[available_cols]
-
-            # Convert date columns
-            date_columns = [col for col in df.columns if 'date' in col.lower()]
-            for col in date_columns:
-                df[col] = pd.to_datetime(df[col], errors='coerce')
-
-            # Clean column names
-            df.columns = df.columns.str.strip()
-
-            return df
+            logger.info(f"Loaded {len(df)} subject records from file")
+            return DataLoader.prepare_subject_data(df)
 
         except Exception as e:
             logger.error(f"Error loading subject data: {e}")
@@ -191,22 +235,8 @@ class DataLoader:
 
         try:
             df = pd.read_csv(filepath)
-            logger.info(f"Loaded {len(df)} mapping records")
-
-            # Select only required columns if they exist
-            available_cols = [col for col in Config.MAPPING_COLUMNS if col in df.columns]
-            df = df[available_cols]
-
-            # Clean column names
-            df.columns = df.columns.str.strip()
-
-            # Handle TPC column variations
-            for col in df.columns:
-                if "TPC" in col.upper():
-                    df.rename(columns={col: "tpc"}, inplace=True)
-                    break
-
-            return df
+            logger.info(f"Loaded {len(df)} mapping records from file")
+            return DataLoader.prepare_mapping_data(df)
 
         except Exception as e:
             logger.error(f"Error loading mapping data: {e}")
@@ -788,6 +818,8 @@ class DemandPlanningProcessor:
             logger.info(f"Using provided subject DataFrame with {len(df_subjects)} records")
             # Make a copy to avoid modifying the original
             df_subjects = df_subjects.copy()
+            # Apply the same preparation logic that load_subject_data uses
+            df_subjects = self.data_loader.prepare_subject_data(df_subjects)
 
         if df_mapping is None:
             if mapping_file is None:
@@ -798,6 +830,8 @@ class DemandPlanningProcessor:
             logger.info(f"Using provided mapping DataFrame with {len(df_mapping)} records")
             # Make a copy to avoid modifying the original
             df_mapping = df_mapping.copy()
+            # Apply the same preparation logic that load_mapping_data uses
+            df_mapping = self.data_loader.prepare_mapping_data(df_mapping)
 
         # Filter to active subjects
         df_subjects = self.filter_active_subjects(df_subjects)

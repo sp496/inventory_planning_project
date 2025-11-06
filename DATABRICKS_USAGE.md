@@ -48,6 +48,22 @@ df_forecast = processor.run(
 display(df_forecast)
 ```
 
+## Data Preparation
+
+**Important:** When you pass DataFrames to `run_demand_planning()`, the following preparation steps are automatically applied:
+
+### For df_subjects:
+1. Column names are stripped of whitespace
+2. Filters to only required columns (see Config.SUBJECT_COLUMNS)
+3. All date columns are parsed using `pd.to_datetime()`
+
+### For df_mapping:
+1. Column names are stripped of whitespace
+2. Filters to only required columns (see Config.MAPPING_COLUMNS)
+3. TPC column variations (e.g., "TPC", " TPC ", "tpc") are normalized to lowercase "tpc"
+
+This means your Databricks DataFrames don't need to be pre-cleaned - the module handles it automatically.
+
 ## Expected Input DataFrames
 
 ### df_subjects (Subject Summary)
