@@ -31,7 +31,7 @@ class CycleInfo:
 class ProjectedVisit:
     """Represents a projected future visit"""
     subject_number: int
-    medicine_name: str
+    drug_dispensed: str
     cycle_number: int
     cycle_day: int
     visit_date: str
@@ -400,7 +400,7 @@ class VisitProjector:
 
                     projected_visit = ProjectedVisit(
                         subject_number=int(row['subject_number']),
-                        medicine_name=row['medicine_name'],
+                        drug_dispensed=row['drug_dispensed'],
                         cycle_number=current_cycle_number,
                         cycle_day=day,
                         visit_date=visit_date.strftime('%Y-%m-%d'),
@@ -456,7 +456,7 @@ class VisitProjector:
 
                         projected_visit = ProjectedVisit(
                             subject_number=int(row['subject_number']),
-                            medicine_name=row['medicine_name'],
+                            drug_dispensed=row['drug_dispensed'],
                             cycle_number=current_projected_cycle,
                             cycle_day=day,
                             visit_date=visit_date.strftime('%Y-%m-%d'),
@@ -576,14 +576,14 @@ class DemandPlanningProcessor:
         )
 
         # Identify the specific medicine for each row
-        df_merged["medicine_name"] = np.where(
+        df_merged["drug_dispensed"] = np.where(
             df_merged["study_drug_dispensed"] != "nan",
             df_merged["study_drug_dispensed"],
             df_merged["additional_study_drug_dispensed"]
         )
 
         # Filter out rows without a medicine
-        df_result = df_merged[df_merged["medicine_name"] != "nan"].copy()
+        df_result = df_merged[df_merged["drug_dispensed"] != "nan"].copy()
         logger.info(f"Identified {len(df_result)} records with valid medicines")
 
         # Add parsed visit information for easier processing
@@ -609,7 +609,7 @@ class DemandPlanningProcessor:
         logger.info("Aggregating by patient and medicine")
 
         # Define aggregation
-        id_cols = ["subject_number", "medicine_name"]
+        id_cols = ["subject_number", "drug_dispensed"]
 
         # Columns to sum
         sum_cols = ["total_medicines_required_per_cycle"]
@@ -658,7 +658,7 @@ class DemandPlanningProcessor:
                 for visit in visits:
                     all_visits.append({
                         'subject_number': visit.subject_number,
-                        'medicine_name': visit.medicine_name,
+                        'drug_dispensed': visit.drug_dispensed,
                         'cycle': visit.cycle_number,
                         'day': visit.cycle_day,
                         'predicted_next_visit_date': visit.visit_date,
@@ -694,7 +694,7 @@ class DemandPlanningProcessor:
         # Define columns to keep from the plan
         plan_columns = [
             'subject_number', 'site_id', 'parent_depot', 'subject_status', 'subject_country',
-            'randomized_treatment', 'tpc', 'medicine_name', 'country',
+            'randomized_treatment', 'tpc', 'drug_dispensed', 'country',
             'study_protocol', 'visit_days', 'visit_count_per_cycle',
             'dispensing_quantity', 'dispensing_frequency_days', 'date_randomized',
             'last_study_visit_recorded', 'last_study_visit_date',
@@ -710,14 +710,13 @@ class DemandPlanningProcessor:
         df_final = pd.merge(
             df_visits,
             df_plan[plan_columns],
-            on=['subject_number', 'medicine_name'],
+            on=['subject_number', 'drug_dispensed'],
             how='left'
         )
 
         # Rename columns for final output
         df_final.rename(columns={
-            'study_protocol': 'study_name',
-            'medicine_name': 'drug_dispensed'
+            'study_protocol': 'study_name'
         }, inplace=True)
 
         # Define final column order
