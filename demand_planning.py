@@ -1,47 +1,3 @@
-#!/usr/bin/env python3
-"""
-Clinical Trial Demand Planning System
-======================================
-A refactored, debuggable version of the demand planning system that predicts
-when patients will need medication refills in clinical trials.
-
-USAGE MODES:
-------------
-
-1. Databricks Notebook (with DataFrames):
-   ```python
-   from demand_planning import run_demand_planning
-
-   # Read from Delta tables
-   df_subjects = spark.table("clinical_subject_summary").toPandas()
-   df_mapping = spark.table("clinical_treatment_mapping").toPandas()
-
-   # Run demand planning
-   df_forecast = run_demand_planning(df_subjects, df_mapping)
-
-   # Convert back to Spark DataFrame if needed
-   spark_df = spark.createDataFrame(df_forecast)
-   ```
-
-2. Local Debugging (with CSV files):
-   ```bash
-   python demand_planning.py
-   ```
-   This will read from CSV files specified in Config class and save output to CSV.
-
-3. Programmatic usage with files:
-   ```python
-   from demand_planning import DemandPlanningProcessor
-
-   processor = DemandPlanningProcessor()
-   df_result = processor.run(
-       subject_file="path/to/subjects.csv",
-       mapping_file="path/to/mapping.csv",
-       output_file="path/to/output.csv"
-   )
-   ```
-"""
-
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -111,7 +67,7 @@ class Config:
         'additional_drug_status', 'last_additional_drug_visit_recorded',
         'last_additional_drug_visit_date', 'last_additional_drug_visit_number',
         'next_min_additional_drug_visit_date', 'next_max_additional_drug_visit_date',
-        'extract_date', 'source_file', 'processed_timestamp'
+        'extract_date'
     ]
 
     MAPPING_COLUMNS = [
@@ -744,7 +700,7 @@ class DemandPlanningProcessor:
             'last_study_visit_recorded', 'last_study_visit_date',
             'last_study_visit_number', 'total_medicines_required_per_cycle',
             'study_drug_dispensed', 'additional_study_drug_dispensed',
-            'parsed_last_visit_cycle', 'parsed_last_visit_day', 'processed_timestamp'
+            'parsed_last_visit_cycle', 'parsed_last_visit_day', 'extract_date'
         ]
 
         # Keep only columns that exist
@@ -761,8 +717,7 @@ class DemandPlanningProcessor:
         # Rename columns for final output
         df_final.rename(columns={
             'study_protocol': 'study_name',
-            'medicine_name': 'drug_dispensed',
-            'country': 'subject_country'
+            'medicine_name': 'drug_dispensed'
         }, inplace=True)
 
         # Define final column order
@@ -770,7 +725,7 @@ class DemandPlanningProcessor:
             'study_name', 'parent_depot', 'site_id', 'subject_number',
             'subject_status', 'subject_country', 'randomized_treatment', 'tpc', 'drug_dispensed',
             'dispensing_quantity', 'predicted_study_visit', 'cycle', 'day',
-            'predicted_next_visit_date', 'processed_timestamp'
+            'predicted_next_visit_date', 'extract_date'
         ]
 
         # Keep only columns that exist
@@ -781,6 +736,8 @@ class DemandPlanningProcessor:
         df_final = df_final.sort_values(
             by=['study_name', 'parent_depot', 'site_id', 'subject_number', 'cycle', 'day']
         )
+
+        df_final['processed_timestamp'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
         logger.info(f"Final output contains {len(df_final)} records")
         return df_final
@@ -838,7 +795,7 @@ class DemandPlanningProcessor:
 
         # Normalize data
         df_subjects, df_mapping = self.normalize_data(df_subjects, df_mapping)
-        df_subjects = df_subjects[df_subjects['subject_number'] == 92465]
+        # df_subjects = df_subjects[df_subjects['subject_number'] == 92465]
 
         # Merge and calculate requirements
         df_merged = self.merge_and_calculate(df_subjects, df_mapping)
@@ -851,8 +808,6 @@ class DemandPlanningProcessor:
 
         # Aggregate by patient-medicine
         df_plan = self.aggregate_by_patient_medicine(df_merged)
-
-
 
         # Project future visits
         df_visits = self.project_all_visits(df_plan)
