@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-from typing import Dict, List, Tuple, Optional, Any, Union
+from typing import Dict, List, Tuple, Optional, Any
 import re
 import logging
 from dataclasses import dataclass
@@ -207,7 +207,7 @@ class TextProcessor:
     """Utilities for text normalization and parsing"""
 
     @staticmethod
-    def normalize_text(text: Any) -> Union[str, float]:
+    def normalize_text(text: Any) -> str:
         """
         Normalize text for consistent matching
 
@@ -215,14 +215,15 @@ class TextProcessor:
             text: Input text to normalize
 
         Returns:
-            Normalized lowercase text with cleaned quotes.
-            Returns np.nan if input is NaN.
+            Normalized lowercase text with cleaned quotes
         """
         if pd.isna(text):
-            return np.nan
+            return str(text)
 
         text = str(text)
-        text = text.replace("’", "'").replace("‘", "'").replace("“", '"').replace("”", '"')
+        # Replace smart quotes with regular quotes
+        text = text.replace("'", "'").replace(""", '"').replace(""", '"')
+        # Strip whitespace and convert to lowercase
         return text.strip().lower()
 
     @staticmethod
@@ -292,7 +293,7 @@ class TextProcessor:
         Returns:
             List of day numbers
         """
-        if pd.isna(visit_days_str):
+        if pd.isna(visit_days_str) or str(visit_days_str).lower() == 'nan':
             return []
 
         try:
@@ -576,13 +577,13 @@ class DemandPlanningProcessor:
 
         # Identify the specific medicine for each row
         df_merged["drug_dispensed"] = np.where(
-            pd.notna(df_merged["study_drug_dispensed"]),
+            df_merged["study_drug_dispensed"] != "nan",
             df_merged["study_drug_dispensed"],
             df_merged["additional_study_drug_dispensed"]
         )
 
         # Filter out rows without a medicine
-        df_result = df_merged[df_merged["drug_dispensed"].notna()].copy()
+        df_result = df_merged[df_merged["drug_dispensed"] != "nan"].copy()
         logger.info(f"Identified {len(df_result)} records with valid medicines")
 
         # Add parsed visit information for easier processing
