@@ -353,8 +353,8 @@ class VisitProjector:
             # Get cycle information
             last_day_number = row.get('parsed_last_visit_day', 1)
             current_cycle_number = row.get('parsed_last_visit_cycle', 0)
-            is_crossover = row.get('Is Crossover', False)
-            is_tpc = row.get('Is TPC', False)
+            is_crossover = row.get('is_crossover', False)
+            is_tpc = row.get('is_tpc', False)
 
             # Get max cycles (optional constraint - hard cap on cycle numbers)
             max_cycles = row.get('max_cycles', None)
@@ -625,8 +625,8 @@ class DemandPlanningProcessor:
         logger.info(f"Aggregated to {len(df_aggregated)} patient-medicine combinations")
 
         # Add flags for Crossover and TPC to help with prefix generation
-        df_aggregated['Is Crossover'] = df_aggregated['last_study_visit_recorded'].astype(str).str.contains('Crossover', case=False)
-        df_aggregated['Is TPC'] = df_aggregated['last_study_visit_recorded'].astype(str).str.contains('tpc', case=False)
+        df_aggregated['is_crossover'] = df_aggregated['last_study_visit_recorded'].astype(str).str.contains('Crossover', case=False)
+        df_aggregated['is_tpc'] = df_aggregated['last_study_visit_recorded'].astype(str).str.contains('tpc', case=False)
 
         return df_aggregated
 
