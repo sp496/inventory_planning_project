@@ -27,8 +27,7 @@ from curation.data_curator import (
     DataCurator,
     Constants,
     logger,
-    load_excel_mapping,
-    load_treatment_mapping
+    load_excel_mapping
 )
 
 # COMMAND ----------
@@ -723,74 +722,5 @@ for date_folder in selected_folders:
                 date_folder=date_folder,
                 schema_mapping=MAPPING_CONFIG["clevel_supplymethod"]["schema_mapping"]
             )
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC #### Treatment Plan Mapping
-
-# COMMAND ----------
-
-# Treatment mapping configuration
-TREATMENT_MAPPING_CONFIG = {
-    "column_mapping": {
-        "Study Protocol": "study_protocol",
-        "Randomized Treatment": "randomized_treatment",
-        "Subject Status": "subject_status",
-        "TPC\nTreatment of Physician's Choice\nTopotecan OR Amrubicin Choice Of Drug\nIntended TPC": "tpc",
-        "Study Drug Dispensed": "study_drug_dispensed",
-        "Additional Study Drug Dispensed": "additional_study_drug_dispensed",
-        "Additional Study Drug Prefix": "additional_study_drug_prefix",
-        "Country": "country",
-        "Visit Days": "visit_days",
-        "Dispensing Quantity": "dispensing_quantity",
-        "Dispensing Frequency (Days)": "dispensing_frequency_days",
-        "Max Cycles": "max_cycles"
-    },
-    "schema_mapping": {
-        "study_protocol": StringType(),
-        "randomized_treatment": StringType(),
-        "subject_status": StringType(),
-        "tpc": StringType(),
-        "study_drug_dispensed": StringType(),
-        "additional_study_drug_dispensed": StringType(),
-        "additional_study_drug_prefix": StringType(),
-        "country": StringType(),
-        "visit_days": StringType(),
-        "dispensing_quantity": LongType(),
-        "dispensing_frequency_days": LongType(),
-        "max_cycles": DoubleType()
-    },
-    "table_name": "`pdm-pdm-gsc-bi-dev`.`clinical_inventory`.`clinical_treatment_groups`"
-}
-
-# Load treatment mapping Excel file
-treatment_mapping_full_path = f"/dbfs{os.path.join(legacy_raw_bkt_mount_point, treatment_group_mapping_file_path)}"
-tgm_df = load_treatment_mapping(treatment_mapping_full_path, sheet_name='Treatment Group Mapping')
-
-# Process using curator
-tgm_processed = curator.process_treatment_mapping(
-    df=tgm_df,
-    column_mapping=TREATMENT_MAPPING_CONFIG["column_mapping"]
-)
-
-# Convert to Spark and write
-spark_tgm_df = spark.createDataFrame(tgm_processed)
-
-# Cast each column to correct type
-for col_name, data_type in TREATMENT_MAPPING_CONFIG["schema_mapping"].items():
-    if col_name in spark_tgm_df.columns:
-        spark_tgm_df = spark_tgm_df.withColumn(col_name, F.col(col_name).cast(data_type))
-
-# Write to Delta table (full overwrite)
-(
-    spark_tgm_df.write
-    .format("delta")
-    .mode("overwrite")
-    .option("overwriteSchema", "false")
-    .saveAsTable(TREATMENT_MAPPING_CONFIG["table_name"])
-)
-
-logger.info("Successfully loaded clinical_treatment_groups table")
 
 # COMMAND ----------

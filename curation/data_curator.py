@@ -404,28 +404,6 @@ class DataCurator:
 
         return combined_df
 
-    def process_treatment_mapping(self,
-                                 df: pd.DataFrame,
-                                 column_mapping: Dict[str, str]) -> pd.DataFrame:
-        """
-        Process treatment group mapping DataFrame.
-
-        Args:
-            df: Input DataFrame (already read from Excel)
-            column_mapping: Dictionary to rename columns
-
-        Returns:
-            Processed DataFrame with renamed columns
-        """
-        logger.info(f"Processing treatment mapping: {df.shape[0]} rows")
-
-        # Rename columns
-        df_renamed = df.rename(columns=column_mapping)
-
-        logger.info(f"Treatment mapping processed: {df_renamed.shape[1]} columns")
-
-        return df_renamed
-
     # ========================================================================
     # Convenience Methods for Local Debugging (accept file paths)
     # ========================================================================
@@ -628,24 +606,3 @@ def load_excel_mapping(excel_path: str, sheet_name: str = 'Header') -> pd.DataFr
                f"{len(mapping_df.columns)-1} study protocols")
 
     return mapping_df
-
-
-def load_treatment_mapping(excel_path: str,
-                          sheet_name: str = 'Treatment Group Mapping') -> pd.DataFrame:
-    """
-    Load treatment group mapping from Excel file.
-
-    Args:
-        excel_path: Path to Excel file
-        sheet_name: Sheet name to read
-
-    Returns:
-        DataFrame with treatment mapping data
-    """
-    logger.info(f"Loading treatment mapping from {excel_path}")
-
-    tgm_df = pd.read_excel(excel_path, sheet_name=sheet_name, dtype='str', engine='openpyxl')
-
-    logger.info(f"Loaded treatment mapping: {tgm_df.shape[0]} rows, {tgm_df.shape[1]} columns")
-
-    return tgm_df

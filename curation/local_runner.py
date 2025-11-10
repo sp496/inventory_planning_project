@@ -1,34 +1,54 @@
 """
-Local Runner for Data Curation
+Local Runner for Data Curation - Simplified for PyCharm
 
-This script allows you to run the data curation process locally for debugging.
-It reads CSV files from a local directory and processes them using DataCurator.
+Simple script for local debugging. Just edit the configuration section below
+and run this file in PyCharm (no command line arguments needed).
 
-Usage:
-    python local_runner.py --data-dir ./test_data --date-folder 20251106 --mapping ./mappings/header_mapping.xlsx
-
-Requirements:
-    - Input data directory with CSV files
-    - Mapping Excel file
-    - Treatment mapping Excel file (optional)
+Steps:
+1. Download CSV files from Databricks/S3 to local directory
+2. Download mapping Excel file
+3. Edit the CONFIGURATION section below
+4. Run this file (Right-click → Run in PyCharm)
+5. Check the output directory for results
 """
 
-import argparse
 import os
 from pathlib import Path
-from typing import List, Tuple
+from typing import List
 import pandas as pd
 
-from data_curator import (
-    DataCurator,
-    read_dynamic_csv,
-    load_excel_mapping,
-    load_treatment_mapping,
-    logger
-)
+from data_curator import DataCurator, load_excel_mapping, logger
 
 
-# Configuration (same as Databricks notebook)
+# ============================================================================
+# CONFIGURATION - Edit these paths for your local debugging
+# ============================================================================
+
+# Directory containing your CSV files
+DATA_DIR = "./test_data/20251106"
+
+# Date folder (e.g., "20251106")
+DATE_FOLDER = "20251106"
+
+# Path to mapping Excel file
+MAPPING_FILE = "./test_data/mappings/header_mapping.xlsx"
+
+# Output directory for processed files
+OUTPUT_DIR = "./output"
+
+# Which file types to process (comment out lines you don't want)
+PROCESS_FILE_TYPES = [
+    'subject',
+    'depot',
+    'site',
+    # 'slevel_supplymethod',
+    # 'clevel_supplymethod',
+]
+
+# ============================================================================
+# Column Mappings (same as Databricks notebook)
+# ============================================================================
+
 MAPPING_CONFIG = {
     "subject": {
         "column_mapping": {
@@ -67,6 +87,7 @@ MAPPING_CONFIG = {
             "next_max_additional_drug_visit_date"
         ]
     },
+
     "depot": {
         "column_mapping": {
             "Study Protocol": "study_protocol",
@@ -93,6 +114,7 @@ MAPPING_CONFIG = {
         },
         "date_columns": ["fp_expiry_date"]
     },
+
     "site": {
         "column_mapping": {
             "Study Protocol": "study_protocol",
@@ -120,193 +142,214 @@ MAPPING_CONFIG = {
             "Quantity Study Drug - Total": "quantity_study_drug_total"
         },
         "date_columns": ["fp_expiry_date"]
+    },
+
+    "slevel_supplymethod": {
+        "column_mapping": {
+            "Study Protocol": "study_protocol",
+            "Country": "country",
+            "Site ID": "site_id",
+            "Comparator Name": "comparator_name",
+            "Site Level Supply Method": "site_level_supply_method",
+            "Site Status": "site_status",
+        },
+        "date_columns": []
+    },
+
+    "clevel_supplymethod": {
+        "column_mapping": {
+            "Study Protocol": "study_protocol",
+            "Country": "country",
+            "Comparator Name": "comparator_name",
+            "Country Level Supply Method": "country_level_supply_method"
+        },
+        "date_columns": []
     }
 }
 
 
-def find_csv_files(data_dir: Path) -> dict:
-    """
-    Find CSV files in the data directory and categorize them.
+# ============================================================================
+# Helper Functions
+# ============================================================================
 
-    Args:
-        data_dir: Path to directory containing CSV files
+def find_csv_files_by_type(data_dir: Path, file_type: str) -> List[str]:
+    """Find CSV files of a specific type in the data directory."""
+    files = []
 
-    Returns:
-        Dictionary with lists of (file_path, file_name) tuples by category
-    """
-    files = {
-        'subject': [],
-        'depot': [],
-        'site': [],
-        'slevel_supplymethod': [],
-        'clevel_supplymethod': []
-    }
-
-    logger.info(f"Scanning directory: {data_dir}")
+    logger.info(f"Scanning for {file_type} files in: {data_dir}")
 
     for file_path in data_dir.rglob('*.csv'):
-        file_name = file_path.name
-        file_name_lower = file_name.lower()
+        file_name_lower = file_path.name.lower()
 
         # Categorize files
-        if 'subject summary' in file_name_lower:
-            files['subject'].append((str(file_path), file_name))
-            logger.info(f"Found Subject Summary: {file_name}")
-        elif 'depot' in file_name_lower and 'inventory' in file_name_lower:
-            files['depot'].append((str(file_path), file_name))
-            logger.info(f"Found Depot Inventory: {file_name}")
-        elif 'site' in file_name_lower and 'inventory' in file_name_lower:
-            files['site'].append((str(file_path), file_name))
-            logger.info(f"Found Site Inventory: {file_name}")
-        elif 'site' in file_name_lower and 'supplymethod' in file_name_lower:
-            files['slevel_supplymethod'].append((str(file_path), file_name))
-            logger.info(f"Found Site Supply Method: {file_name}")
-        elif 'country' in file_name_lower and 'supplymethod' in file_name_lower:
-            files['clevel_supplymethod'].append((str(file_path), file_name))
-            logger.info(f"Found Country Supply Method: {file_name}")
+        if file_type == 'subject' and 'subject summary' in file_name_lower:
+            files.append(str(file_path))
+        elif file_type == 'depot' and 'depot' in file_name_lower and 'inventory' in file_name_lower:
+            files.append(str(file_path))
+        elif file_type == 'site' and 'site' in file_name_lower and 'inventory' in file_name_lower:
+            files.append(str(file_path))
+        elif file_type == 'slevel_supplymethod' and 'site' in file_name_lower and 'supplymethod' in file_name_lower:
+            files.append(str(file_path))
+        elif file_type == 'clevel_supplymethod' and 'country' in file_name_lower and 'supplymethod' in file_name_lower:
+            files.append(str(file_path))
 
+    logger.info(f"Found {len(files)} {file_type} files")
     return files
 
 
-def load_dataframes(file_list: List[Tuple[str, str]]) -> List[Tuple[pd.DataFrame, str]]:
-    """
-    Load CSV files into DataFrames.
-
-    Args:
-        file_list: List of (file_path, file_name) tuples
-
-    Returns:
-        List of (DataFrame, filename) tuples
-    """
-    dataframes = []
-
-    for file_path, file_name in file_list:
-        try:
-            df = read_dynamic_csv(file_path)
-            dataframes.append((df, file_name))
-            logger.info(f"Loaded {file_name}: {df.shape}")
-        except Exception as e:
-            logger.error(f"Error loading {file_name}: {str(e)}")
-            continue
-
-    return dataframes
-
+# ============================================================================
+# Main Processing
+# ============================================================================
 
 def main():
-    """Main function to run data curation locally."""
-    parser = argparse.ArgumentParser(description='Run data curation locally for debugging')
-    parser.add_argument('--data-dir', required=True, help='Directory containing CSV files')
-    parser.add_argument('--date-folder', required=True, help='Date folder (e.g., 20251106)')
-    parser.add_argument('--mapping', required=True, help='Path to header mapping Excel file')
-    parser.add_argument('--output-dir', default='./output', help='Output directory for processed files')
-    parser.add_argument('--file-type', choices=['subject', 'depot', 'site', 'all'],
-                       default='all', help='Type of files to process')
+    """Main processing function."""
 
-    args = parser.parse_args()
+    logger.info("=" * 80)
+    logger.info("Starting Local Data Curation")
+    logger.info("=" * 80)
+    logger.info(f"Data Directory: {DATA_DIR}")
+    logger.info(f"Date Folder: {DATE_FOLDER}")
+    logger.info(f"Mapping File: {MAPPING_FILE}")
+    logger.info(f"Output Directory: {OUTPUT_DIR}")
+    logger.info(f"Processing file types: {PROCESS_FILE_TYPES}")
 
     # Validate inputs
-    data_dir = Path(args.data_dir)
+    data_dir = Path(DATA_DIR)
     if not data_dir.exists():
         logger.error(f"Data directory not found: {data_dir}")
         return
 
-    mapping_path = Path(args.mapping)
+    mapping_path = Path(MAPPING_FILE)
     if not mapping_path.exists():
         logger.error(f"Mapping file not found: {mapping_path}")
         return
 
     # Create output directory
-    output_dir = Path(args.output_dir)
+    output_dir = Path(OUTPUT_DIR)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    logger.info("=" * 80)
-    logger.info("Starting Local Data Curation")
-    logger.info("=" * 80)
-    logger.info(f"Data Directory: {data_dir}")
-    logger.info(f"Date Folder: {args.date_folder}")
-    logger.info(f"Mapping File: {mapping_path}")
-    logger.info(f"Output Directory: {output_dir}")
-
-    # Load mapping
-    logger.info("\nLoading mapping file...")
+    # Load mapping and initialize curator
+    logger.info("\n→ Loading mapping file...")
     mapping_df = load_excel_mapping(str(mapping_path))
-
-    # Initialize curator
     curator = DataCurator(mapping_df=mapping_df)
-
-    # Find all CSV files
-    logger.info("\nScanning for CSV files...")
-    csv_files = find_csv_files(data_dir)
+    logger.info("✓ DataCurator initialized")
 
     # Process each file type
     results = {}
 
-    if args.file_type in ['subject', 'all'] and csv_files['subject']:
+    if 'subject' in PROCESS_FILE_TYPES:
         logger.info("\n" + "=" * 80)
         logger.info("Processing Subject Summary files")
         logger.info("=" * 80)
 
-        # Load dataframes
-        subject_dfs = load_dataframes(csv_files['subject'])
+        subject_files = find_csv_files_by_type(data_dir, 'subject')
 
-        # Process
-        subject_result = curator.process_subject_summary_batch(
-            dataframes=subject_dfs,
-            date_folder=args.date_folder,
-            column_mapping=MAPPING_CONFIG['subject']['column_mapping'],
-            date_columns=MAPPING_CONFIG['subject']['date_columns']
-        )
+        if subject_files:
+            subject_result = curator.process_subject_summary_batch_from_files(
+                file_paths=subject_files,
+                date_folder=DATE_FOLDER,
+                column_mapping=MAPPING_CONFIG['subject']['column_mapping'],
+                date_columns=MAPPING_CONFIG['subject']['date_columns']
+            )
 
-        if subject_result is not None:
-            output_path = output_dir / f'subject_summary_{args.date_folder}.csv'
-            subject_result.to_csv(output_path, index=False)
-            logger.info(f"✓ Saved Subject Summary: {output_path}")
-            logger.info(f"  Shape: {subject_result.shape}")
-            results['subject'] = subject_result
+            if subject_result is not None:
+                output_path = output_dir / f'subject_summary_{DATE_FOLDER}.csv'
+                subject_result.to_csv(output_path, index=False)
+                logger.info(f"✓ Saved Subject Summary: {output_path}")
+                logger.info(f"  Shape: {subject_result.shape}")
+                results['subject'] = subject_result
 
-    if args.file_type in ['depot', 'all'] and csv_files['depot']:
+    if 'depot' in PROCESS_FILE_TYPES:
         logger.info("\n" + "=" * 80)
         logger.info("Processing Depot Inventory files")
         logger.info("=" * 80)
 
-        depot_dfs = load_dataframes(csv_files['depot'])
+        depot_files = find_csv_files_by_type(data_dir, 'depot')
 
-        depot_result = curator.process_generic_batch(
-            dataframes=depot_dfs,
-            date_folder=args.date_folder,
-            file_type='depot',
-            column_mapping=MAPPING_CONFIG['depot']['column_mapping'],
-            date_columns=MAPPING_CONFIG['depot']['date_columns']
-        )
+        if depot_files:
+            depot_result = curator.process_generic_batch_from_files(
+                file_paths=depot_files,
+                date_folder=DATE_FOLDER,
+                file_type='depot',
+                column_mapping=MAPPING_CONFIG['depot']['column_mapping'],
+                date_columns=MAPPING_CONFIG['depot']['date_columns']
+            )
 
-        if depot_result is not None:
-            output_path = output_dir / f'depot_inventory_{args.date_folder}.csv'
-            depot_result.to_csv(output_path, index=False)
-            logger.info(f"✓ Saved Depot Inventory: {output_path}")
-            logger.info(f"  Shape: {depot_result.shape}")
-            results['depot'] = depot_result
+            if depot_result is not None:
+                output_path = output_dir / f'depot_inventory_{DATE_FOLDER}.csv'
+                depot_result.to_csv(output_path, index=False)
+                logger.info(f"✓ Saved Depot Inventory: {output_path}")
+                logger.info(f"  Shape: {depot_result.shape}")
+                results['depot'] = depot_result
 
-    if args.file_type in ['site', 'all'] and csv_files['site']:
+    if 'site' in PROCESS_FILE_TYPES:
         logger.info("\n" + "=" * 80)
         logger.info("Processing Site Inventory files")
         logger.info("=" * 80)
 
-        site_dfs = load_dataframes(csv_files['site'])
+        site_files = find_csv_files_by_type(data_dir, 'site')
 
-        site_result = curator.process_generic_batch(
-            dataframes=site_dfs,
-            date_folder=args.date_folder,
-            file_type='site',
-            column_mapping=MAPPING_CONFIG['site']['column_mapping'],
-            date_columns=MAPPING_CONFIG['site']['date_columns']
-        )
+        if site_files:
+            site_result = curator.process_generic_batch_from_files(
+                file_paths=site_files,
+                date_folder=DATE_FOLDER,
+                file_type='site',
+                column_mapping=MAPPING_CONFIG['site']['column_mapping'],
+                date_columns=MAPPING_CONFIG['site']['date_columns']
+            )
 
-        if site_result is not None:
-            output_path = output_dir / f'site_inventory_{args.date_folder}.csv'
-            site_result.to_csv(output_path, index=False)
-            logger.info(f"✓ Saved Site Inventory: {output_path}")
-            logger.info(f"  Shape: {site_result.shape}")
-            results['site'] = site_result
+            if site_result is not None:
+                output_path = output_dir / f'site_inventory_{DATE_FOLDER}.csv'
+                site_result.to_csv(output_path, index=False)
+                logger.info(f"✓ Saved Site Inventory: {output_path}")
+                logger.info(f"  Shape: {site_result.shape}")
+                results['site'] = site_result
+
+    if 'slevel_supplymethod' in PROCESS_FILE_TYPES:
+        logger.info("\n" + "=" * 80)
+        logger.info("Processing Site-Level Supply Method files")
+        logger.info("=" * 80)
+
+        slevel_files = find_csv_files_by_type(data_dir, 'slevel_supplymethod')
+
+        if slevel_files:
+            slevel_result = curator.process_generic_batch_from_files(
+                file_paths=slevel_files,
+                date_folder=DATE_FOLDER,
+                file_type='site-level supply method',
+                column_mapping=MAPPING_CONFIG['slevel_supplymethod']['column_mapping'],
+                date_columns=MAPPING_CONFIG['slevel_supplymethod']['date_columns']
+            )
+
+            if slevel_result is not None:
+                output_path = output_dir / f'slevel_supplymethod_{DATE_FOLDER}.csv'
+                slevel_result.to_csv(output_path, index=False)
+                logger.info(f"✓ Saved Site-Level Supply Method: {output_path}")
+                logger.info(f"  Shape: {slevel_result.shape}")
+                results['slevel_supplymethod'] = slevel_result
+
+    if 'clevel_supplymethod' in PROCESS_FILE_TYPES:
+        logger.info("\n" + "=" * 80)
+        logger.info("Processing Country-Level Supply Method files")
+        logger.info("=" * 80)
+
+        clevel_files = find_csv_files_by_type(data_dir, 'clevel_supplymethod')
+
+        if clevel_files:
+            clevel_result = curator.process_generic_batch_from_files(
+                file_paths=clevel_files,
+                date_folder=DATE_FOLDER,
+                file_type='country-level supply method',
+                column_mapping=MAPPING_CONFIG['clevel_supplymethod']['column_mapping'],
+                date_columns=MAPPING_CONFIG['clevel_supplymethod']['date_columns']
+            )
+
+            if clevel_result is not None:
+                output_path = output_dir / f'clevel_supplymethod_{DATE_FOLDER}.csv'
+                clevel_result.to_csv(output_path, index=False)
+                logger.info(f"✓ Saved Country-Level Supply Method: {output_path}")
+                logger.info(f"  Shape: {clevel_result.shape}")
+                results['clevel_supplymethod'] = clevel_result
 
     # Summary
     logger.info("\n" + "=" * 80)
