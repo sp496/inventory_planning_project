@@ -2,14 +2,18 @@
 Data Curator Module
 
 This module contains all pandas-based data processing logic for clinical inventory curation.
-It is designed to be independent of Databricks so it can be tested and used in any environment.
+It accepts DataFrames as input, making it fully portable and testable locally or in Databricks.
+
+Key Design:
+- Primary methods accept DataFrames (not file paths)
+- Databricks notebook handles file I/O and passes DataFrames
+- Can be run locally by reading CSV files and passing DataFrames
 """
 
-import os
 import re
 import logging
 from datetime import datetime
-from typing import Dict, List, Tuple, Optional, Any
+from typing import Dict, List, Tuple, Optional
 import pandas as pd
 
 
@@ -28,14 +32,14 @@ class Constants:
     INPUT_DATE_FORMAT = '%d-%b-%Y'
     OUTPUT_DATE_FORMAT = '%Y-%m-%d'
     TIMESTAMP_FORMAT = '%Y-%m-%d %H:%M:%S'
-    MAX_HEADER_SEARCH_ROWS = 10
 
 
 class DataCurator:
     """
     Handles all pandas-based data processing for clinical inventory curation.
 
-    This class is independent of Databricks and can be used in any Python environment.
+    This class works with DataFrames as input, making it portable and testable.
+    It does NOT handle file I/O - that's the responsibility of the caller.
     """
 
     def __init__(self, mapping_df: Optional[pd.DataFrame] = None):
@@ -49,94 +53,7 @@ class DataCurator:
         logger.info("DataCurator initialized")
 
     # ========================================================================
-    # File Reading Methods
-    # ========================================================================
-
-    @staticmethod
-    def read_dynamic_csv(filepath: str, max_rows: int = Constants.MAX_HEADER_SEARCH_ROWS) -> pd.DataFrame:
-        """
-        Read CSV file with dynamic header row detection.
-
-        Finds the first row where all cells are non-empty and uses it as the header.
-
-        Args:
-            filepath: Path to the CSV file
-            max_rows: Maximum number of rows to search for header
-
-        Returns:
-            DataFrame with data
-
-        Raises:
-            FileNotFoundError: If file doesn't exist
-            ValueError: If no valid header found
-        """
-        if not os.path.exists(filepath):
-            raise FileNotFoundError(f"File not found: {filepath}")
-
-        try:
-            with open(filepath, 'r', encoding='utf-8') as f:
-                for i, line in enumerate(f):
-                    if i >= max_rows:
-                        raise ValueError(f"No valid header found in first {max_rows} rows of {filepath}")
-
-                    cells = [c.strip() for c in line.split(',')]
-
-                    # Check if all cells are non-empty and has multiple columns
-                    if len(cells) > 1 and all(cells):
-                        logger.info(f"Found header at line {i} in {filepath}")
-                        df = pd.read_csv(filepath, dtype=str, encoding='utf-8', skiprows=i)
-                        return df
-
-            raise ValueError(f"No fully populated header line found in {filepath}")
-
-        except Exception as e:
-            logger.error(f"Error reading CSV file {filepath}: {str(e)}")
-            raise
-
-    @staticmethod
-    def load_excel_mapping(excel_path: str, sheet_name: str = 'Header') -> pd.DataFrame:
-        """
-        Load column mapping from an Excel file.
-
-        Args:
-            excel_path: Path to the Excel file containing mappings
-            sheet_name: Name of the sheet to read
-
-        Returns:
-            DataFrame with mapping data where:
-            - First column 'Column Header' contains standardized column names
-            - Each subsequent column is a Study Protocol with original column names
-
-        Raises:
-            FileNotFoundError: If file doesn't exist
-            ValueError: If 'Column Header' column not found
-        """
-        if not os.path.exists(excel_path):
-            raise FileNotFoundError(f"Excel file not found: {excel_path}")
-
-        logger.info(f"Loading mapping from: {excel_path}, sheet: {sheet_name}")
-
-        try:
-            mapping_df = pd.read_excel(excel_path, sheet_name=sheet_name, engine='openpyxl')
-
-            # Verify 'Column Header' column exists
-            if 'Column Header' not in mapping_df.columns:
-                raise ValueError(
-                    f"'Column Header' column not found in mapping file. "
-                    f"Found columns: {list(mapping_df.columns)}"
-                )
-
-            logger.info(f"Mapping loaded: {len(mapping_df)} rows, "
-                       f"{len(mapping_df.columns)-1} study protocols")
-
-            return mapping_df
-
-        except Exception as e:
-            logger.error(f"Error loading Excel mapping: {str(e)}")
-            raise
-
-    # ========================================================================
-    # Data Extraction and Parsing Methods
+    # Static Utility Methods (can be used without instance)
     # ========================================================================
 
     @staticmethod
@@ -161,10 +78,6 @@ class DataCurator:
         logger.debug(f"Extracted study protocol: {study_protocol} from {filename}")
         return study_protocol
 
-    # ========================================================================
-    # Data Transformation Methods
-    # ========================================================================
-
     @staticmethod
     def remove_rows_with_n_values(df: pd.DataFrame, n: int = 1) -> pd.DataFrame:
         """
@@ -185,6 +98,64 @@ class DataCurator:
             logger.info(f"Removed {removed_count} rows with {n} or fewer values")
 
         return df_filtered
+
+    @staticmethod
+    def convert_date_columns(df: pd.DataFrame,
+                            date_columns: List[str],
+                            input_format: str = Constants.INPUT_DATE_FORMAT) -> pd.DataFrame:
+        """
+        Convert date columns to datetime format.
+
+        Args:
+            df: Input DataFrame
+            date_columns: List of column names to convert
+            input_format: Input date format string
+
+        Returns:
+            DataFrame with converted date columns
+        """
+        df = df.copy()
+
+        for col in date_columns:
+            if col in df.columns:
+                df[col] = pd.to_datetime(df[col], format=input_format, errors='coerce')
+                logger.debug(f"Converted date column: {col}")
+
+        return df
+
+    @staticmethod
+    def add_metadata_columns(df: pd.DataFrame,
+                           date_folder: str,
+                           source_file: str) -> pd.DataFrame:
+        """
+        Add metadata columns to DataFrame.
+
+        Args:
+            df: Input DataFrame
+            date_folder: Date folder string (e.g., "20251106")
+            source_file: Source filename
+
+        Returns:
+            DataFrame with metadata columns added
+        """
+        df = df.copy()
+
+        df['extract_date'] = pd.to_datetime(
+            date_folder,
+            format=Constants.DATE_FOLDER_FORMAT
+        ).strftime(Constants.OUTPUT_DATE_FORMAT)
+
+        df['processed_timestamp'] = datetime.now().strftime(Constants.TIMESTAMP_FORMAT)
+        df['source_file'] = source_file
+
+        logger.debug(f"Added metadata: extract_date={df['extract_date'].iloc[0]}, "
+                    f"source_file={source_file}")
+
+        return df
+
+    # ========================================================================
+    # Column Mapping Methods
+    # ========================================================================
 
     def create_column_mapping(self, study_protocol: str) -> Dict[str, str]:
         """
@@ -221,12 +192,18 @@ class DataCurator:
         logger.debug(f"Created column mapping with {len(column_mapping)} columns for {study_protocol}")
         return column_mapping
 
-    def standardize_dataframe(self, source_df: pd.DataFrame, filename: str) -> Tuple[pd.DataFrame, str]:
+    # ========================================================================
+    # Core Processing Methods (accept DataFrames)
+    # ========================================================================
+
+    def standardize_subject_summary(self,
+                                    df: pd.DataFrame,
+                                    filename: str) -> Tuple[pd.DataFrame, str]:
         """
-        Standardize a dataframe based on header mapping.
+        Standardize a Subject Summary DataFrame based on header mapping.
 
         Args:
-            source_df: pandas DataFrame with source data
+            df: Input DataFrame (already read from CSV)
             filename: Original filename to extract Study Protocol from
 
         Returns:
@@ -238,7 +215,7 @@ class DataCurator:
         if self.mapping_df is None:
             raise ValueError("mapping_df not set. Initialize DataCurator with mapping DataFrame.")
 
-        df = source_df.copy()
+        df = df.copy()
 
         # Extract Study Protocol from filename
         study_protocol = self.extract_study_protocol(filename)
@@ -282,168 +259,77 @@ class DataCurator:
             else:
                 df_standardized[std_col] = None
 
-        logger.info(f"Standardized dataframe: {df_standardized.shape[0]} rows, {df_standardized.shape[1]} columns")
+        logger.info(f"Standardized Subject Summary: {df_standardized.shape[0]} rows, "
+                   f"{df_standardized.shape[1]} columns")
 
         return df_standardized, study_protocol
 
-    @staticmethod
-    def convert_date_columns(df: pd.DataFrame, date_columns: List[str],
-                            input_format: str = Constants.INPUT_DATE_FORMAT) -> pd.DataFrame:
+    def add_study_protocol_column(self,
+                                  df: pd.DataFrame,
+                                  filename: str) -> Tuple[pd.DataFrame, str]:
         """
-        Convert date columns to datetime format.
+        Add Study Protocol column to a DataFrame (for depot, site, supply method files).
 
         Args:
             df: Input DataFrame
-            date_columns: List of column names to convert
-            input_format: Input date format string
+            filename: Filename to extract study protocol from
 
         Returns:
-            DataFrame with converted date columns
+            Tuple of (DataFrame with Study Protocol column, study_protocol)
         """
         df = df.copy()
 
-        for col in date_columns:
-            if col in df.columns:
-                df[col] = pd.to_datetime(df[col], format=input_format, errors='coerce')
-                logger.debug(f"Converted date column: {col}")
+        # Extract study protocol
+        study_protocol = self.extract_study_protocol(filename)
 
-        return df
+        # Add Study Protocol column at the beginning
+        df.insert(0, 'Study Protocol', study_protocol)
 
-    @staticmethod
-    def add_metadata_columns(df: pd.DataFrame, date_folder: str,
-                           source_file: str) -> pd.DataFrame:
-        """
-        Add metadata columns to DataFrame.
+        logger.info(f"Added Study Protocol '{study_protocol}' to DataFrame: {df.shape}")
 
-        Args:
-            df: Input DataFrame
-            date_folder: Date folder string (e.g., "20251106")
-            source_file: Source filename
-
-        Returns:
-            DataFrame with metadata columns added
-        """
-        df = df.copy()
-
-        df['extract_date'] = pd.to_datetime(date_folder, format=Constants.DATE_FOLDER_FORMAT).strftime(
-            Constants.OUTPUT_DATE_FORMAT
-        )
-        df['processed_timestamp'] = datetime.now().strftime(Constants.TIMESTAMP_FORMAT)
-        df['source_file'] = source_file
-
-        logger.debug(f"Added metadata columns: extract_date={df['extract_date'].iloc[0]}, "
-                    f"source_file={source_file}")
-
-        return df
-
-    # ========================================================================
-    # File Processing Methods
-    # ========================================================================
-
-    def process_subject_summary_file(self, file_path: str,
-                                    file_name: str) -> Tuple[Optional[pd.DataFrame], Optional[str]]:
-        """
-        Read and standardize a Subject Summary CSV file.
-
-        Args:
-            file_path: Full path to the CSV file
-            file_name: Name of the file
-
-        Returns:
-            Tuple of (standardized DataFrame, study_protocol) or (None, None) if processing fails
-        """
-        try:
-            logger.info(f"Processing Subject Summary file: {file_name}")
-
-            # Convert dbfs path to local path if needed
-            local_path = file_path.replace("dbfs:", "/dbfs")
-
-            # Read CSV file
-            df = self.read_dynamic_csv(local_path)
-            logger.info(f"Loaded CSV: {df.shape[0]} rows, {df.shape[1]} columns")
-
-            # Apply standardization
-            standardized_df, study_protocol = self.standardize_dataframe(df, file_name)
-
-            logger.info(f"Successfully standardized Subject Summary file. "
-                       f"Study Protocol: {study_protocol}, Output shape: {standardized_df.shape}")
-
-            return standardized_df, study_protocol
-
-        except Exception as e:
-            logger.error(f"Error processing Subject Summary file {file_name}: {str(e)}", exc_info=True)
-            return None, None
-
-    def process_generic_file(self, file_path: str, file_name: str,
-                            file_type: str = "generic") -> Tuple[Optional[pd.DataFrame], Optional[str]]:
-        """
-        Read and process a generic CSV file (depot, site, supply method, etc.).
-
-        Args:
-            file_path: Full path to the CSV file
-            file_name: Name of the file
-            file_type: Type of file for logging purposes
-
-        Returns:
-            Tuple of (DataFrame with Study Protocol column, study_protocol) or (None, None) if processing fails
-        """
-        try:
-            logger.info(f"Processing {file_type} file: {file_name}")
-
-            # Convert dbfs path to local path if needed
-            local_path = file_path.replace("dbfs:", "/dbfs")
-
-            # Read CSV file
-            df = self.read_dynamic_csv(local_path)
-            logger.info(f"Loaded CSV: {df.shape[0]} rows, {df.shape[1]} columns")
-
-            # Extract study protocol
-            study_protocol = self.extract_study_protocol(file_name)
-
-            # Add Study Protocol column at the beginning
-            df.insert(0, 'Study Protocol', study_protocol)
-
-            logger.info(f"Successfully processed {file_type} file. "
-                       f"Study Protocol: {study_protocol}, Output shape: {df.shape}")
-
-            return df, study_protocol
-
-        except Exception as e:
-            logger.error(f"Error processing {file_type} file {file_name}: {str(e)}", exc_info=True)
-            return None, None
+        return df, study_protocol
 
     # ========================================================================
     # Batch Processing Methods
     # ========================================================================
 
-    def process_subject_summary_batch(self, file_list: List[Tuple[str, str]],
+    def process_subject_summary_batch(self,
+                                     dataframes: List[Tuple[pd.DataFrame, str]],
                                      date_folder: str,
                                      column_mapping: Dict[str, str],
                                      date_columns: List[str]) -> Optional[pd.DataFrame]:
         """
-        Process multiple Subject Summary files and combine them.
+        Process multiple Subject Summary DataFrames and combine them.
 
         Args:
-            file_list: List of (file_path, file_name) tuples
+            dataframes: List of (DataFrame, filename) tuples
             date_folder: Date folder string (e.g., "20251106")
             column_mapping: Dictionary to rename columns
             date_columns: List of date column names to convert
 
         Returns:
-            Combined and processed DataFrame, or None if no files processed successfully
+            Combined and processed DataFrame, or None if no dataframes provided
         """
-        if not file_list:
-            logger.warning(f"No Subject Summary files found for {date_folder}")
+        if not dataframes:
+            logger.warning(f"No Subject Summary dataframes provided for {date_folder}")
             return None
 
         processed_dfs = []
 
-        for file_path, file_name in file_list:
-            df, study_protocol = self.process_subject_summary_file(file_path, file_name)
+        for df, filename in dataframes:
+            try:
+                # Standardize the dataframe
+                standardized_df, study_protocol = self.standardize_subject_summary(df, filename)
 
-            if df is not None:
-                df = self.add_metadata_columns(df, date_folder, file_name)
-                processed_dfs.append(df)
+                # Add metadata
+                standardized_df = self.add_metadata_columns(standardized_df, date_folder, filename)
+
+                processed_dfs.append(standardized_df)
+                logger.info(f"Processed Subject Summary: {filename}")
+
+            except Exception as e:
+                logger.error(f"Error processing Subject Summary {filename}: {str(e)}", exc_info=True)
+                continue
 
         if not processed_dfs:
             logger.error(f"Failed to process any Subject Summary files for {date_folder}")
@@ -453,7 +339,7 @@ class DataCurator:
         combined_df = pd.concat(processed_dfs, ignore_index=True)
         logger.info(f"Combined {len(processed_dfs)} Subject Summary files: {combined_df.shape}")
 
-        # Rename columns
+        # Rename columns to match database schema
         combined_df = combined_df.rename(columns=column_mapping)
 
         # Convert date columns
@@ -461,36 +347,45 @@ class DataCurator:
 
         return combined_df
 
-    def process_generic_batch(self, file_list: List[Tuple[str, str]],
+    def process_generic_batch(self,
+                             dataframes: List[Tuple[pd.DataFrame, str]],
                              date_folder: str,
                              file_type: str,
                              column_mapping: Dict[str, str],
                              date_columns: Optional[List[str]] = None) -> Optional[pd.DataFrame]:
         """
-        Process multiple generic files (depot, site, supply method) and combine them.
+        Process multiple generic DataFrames (depot, site, supply method) and combine them.
 
         Args:
-            file_list: List of (file_path, file_name) tuples
+            dataframes: List of (DataFrame, filename) tuples
             date_folder: Date folder string
             file_type: Type of file for logging
             column_mapping: Dictionary to rename columns
             date_columns: Optional list of date column names to convert
 
         Returns:
-            Combined and processed DataFrame, or None if no files processed successfully
+            Combined and processed DataFrame, or None if no dataframes provided
         """
-        if not file_list:
-            logger.warning(f"No {file_type} files found for {date_folder}")
+        if not dataframes:
+            logger.warning(f"No {file_type} dataframes provided for {date_folder}")
             return None
 
         processed_dfs = []
 
-        for file_path, file_name in file_list:
-            df, study_protocol = self.process_generic_file(file_path, file_name, file_type)
+        for df, filename in dataframes:
+            try:
+                # Add study protocol column
+                df_with_protocol, study_protocol = self.add_study_protocol_column(df, filename)
 
-            if df is not None:
-                df = self.add_metadata_columns(df, date_folder, file_name)
-                processed_dfs.append(df)
+                # Add metadata
+                df_with_protocol = self.add_metadata_columns(df_with_protocol, date_folder, filename)
+
+                processed_dfs.append(df_with_protocol)
+                logger.info(f"Processed {file_type}: {filename}")
+
+            except Exception as e:
+                logger.error(f"Error processing {file_type} {filename}: {str(e)}", exc_info=True)
+                continue
 
         if not processed_dfs:
             logger.error(f"Failed to process any {file_type} files for {date_folder}")
@@ -500,7 +395,7 @@ class DataCurator:
         combined_df = pd.concat(processed_dfs, ignore_index=True)
         logger.info(f"Combined {len(processed_dfs)} {file_type} files: {combined_df.shape}")
 
-        # Rename columns
+        # Rename columns to match database schema
         combined_df = combined_df.rename(columns=column_mapping)
 
         # Convert date columns if specified
@@ -509,36 +404,122 @@ class DataCurator:
 
         return combined_df
 
-    # ========================================================================
-    # Treatment Mapping Methods
-    # ========================================================================
-
-    @staticmethod
-    def process_treatment_mapping(excel_path: str, sheet_name: str,
+    def process_treatment_mapping(self,
+                                 df: pd.DataFrame,
                                  column_mapping: Dict[str, str]) -> pd.DataFrame:
         """
-        Load and process treatment group mapping from Excel.
+        Process treatment group mapping DataFrame.
 
         Args:
-            excel_path: Path to Excel file
-            sheet_name: Sheet name to read
+            df: Input DataFrame (already read from Excel)
             column_mapping: Dictionary to rename columns
 
         Returns:
             Processed DataFrame with renamed columns
         """
-        logger.info(f"Loading treatment mapping from {excel_path}")
+        logger.info(f"Processing treatment mapping: {df.shape[0]} rows")
 
-        try:
-            tgm_df = pd.read_excel(excel_path, sheet_name=sheet_name, dtype='str', engine='openpyxl')
+        # Rename columns
+        df_renamed = df.rename(columns=column_mapping)
 
-            # Rename columns
-            tgm_df = tgm_df.rename(columns=column_mapping)
+        logger.info(f"Treatment mapping processed: {df_renamed.shape[1]} columns")
 
-            logger.info(f"Loaded treatment mapping: {tgm_df.shape[0]} rows, {tgm_df.shape[1]} columns")
+        return df_renamed
 
-            return tgm_df
 
-        except Exception as e:
-            logger.error(f"Error loading treatment mapping: {str(e)}")
-            raise
+# ========================================================================
+# Convenience Functions for Local File Reading
+# ========================================================================
+
+def read_dynamic_csv(filepath: str, max_rows: int = 10) -> pd.DataFrame:
+    """
+    Read CSV file with dynamic header row detection.
+
+    Finds the first row where all cells are non-empty and uses it as the header.
+    This is a convenience function for local testing.
+
+    Args:
+        filepath: Path to the CSV file
+        max_rows: Maximum number of rows to search for header
+
+    Returns:
+        DataFrame with data
+
+    Raises:
+        FileNotFoundError: If file doesn't exist
+        ValueError: If no valid header found
+    """
+    logger.info(f"Reading CSV with dynamic header detection: {filepath}")
+
+    with open(filepath, 'r', encoding='utf-8') as f:
+        for i, line in enumerate(f):
+            if i >= max_rows:
+                raise ValueError(f"No valid header found in first {max_rows} rows of {filepath}")
+
+            cells = [c.strip() for c in line.split(',')]
+
+            # Check if all cells are non-empty and has multiple columns
+            if len(cells) > 1 and all(cells):
+                logger.info(f"Found header at line {i} in {filepath}")
+                df = pd.read_csv(filepath, dtype=str, encoding='utf-8', skiprows=i)
+                logger.info(f"Loaded CSV: {df.shape[0]} rows, {df.shape[1]} columns")
+                return df
+
+    raise ValueError(f"No fully populated header line found in {filepath}")
+
+
+def load_excel_mapping(excel_path: str, sheet_name: str = 'Header') -> pd.DataFrame:
+    """
+    Load column mapping from an Excel file.
+
+    This is a convenience function for loading mapping files.
+
+    Args:
+        excel_path: Path to the Excel file containing mappings
+        sheet_name: Name of the sheet to read
+
+    Returns:
+        DataFrame with mapping data where:
+        - First column 'Column Header' contains standardized column names
+        - Each subsequent column is a Study Protocol with original column names
+
+    Raises:
+        FileNotFoundError: If file doesn't exist
+        ValueError: If 'Column Header' column not found
+    """
+    logger.info(f"Loading Excel mapping from: {excel_path}, sheet: {sheet_name}")
+
+    mapping_df = pd.read_excel(excel_path, sheet_name=sheet_name, engine='openpyxl')
+
+    # Verify 'Column Header' column exists
+    if 'Column Header' not in mapping_df.columns:
+        raise ValueError(
+            f"'Column Header' column not found in mapping file. "
+            f"Found columns: {list(mapping_df.columns)}"
+        )
+
+    logger.info(f"Mapping loaded: {len(mapping_df)} rows, "
+               f"{len(mapping_df.columns)-1} study protocols")
+
+    return mapping_df
+
+
+def load_treatment_mapping(excel_path: str,
+                          sheet_name: str = 'Treatment Group Mapping') -> pd.DataFrame:
+    """
+    Load treatment group mapping from Excel file.
+
+    Args:
+        excel_path: Path to Excel file
+        sheet_name: Sheet name to read
+
+    Returns:
+        DataFrame with treatment mapping data
+    """
+    logger.info(f"Loading treatment mapping from {excel_path}")
+
+    tgm_df = pd.read_excel(excel_path, sheet_name=sheet_name, dtype='str', engine='openpyxl')
+
+    logger.info(f"Loaded treatment mapping: {tgm_df.shape[0]} rows, {tgm_df.shape[1]} columns")
+
+    return tgm_df

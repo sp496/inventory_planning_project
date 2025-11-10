@@ -2,21 +2,34 @@
 """
 Clinical Inventory Data Curation - Refactored Databricks Notebook
 
-This notebook focuses on Databricks-specific operations (mounting, Spark operations)
-while delegating all pandas processing to the DataCurator class.
+This notebook handles Databricks-specific operations (file I/O, mounting, Spark operations)
+and passes DataFrames to the DataCurator class for processing.
+
+Key Design:
+- Databricks notebook: Handles ALL file I/O using dbutils
+- DataCurator: Processes DataFrames (pandas operations only)
+- This separation allows local debugging by passing CSV DataFrames
 """
 
 import os
 import json
 import logging
+import pandas as pd
 from datetime import datetime
+from typing import List, Tuple
 from pyspark.sql import functions as F
 from pyspark.sql.types import (
     StringType, IntegerType, LongType, DateType, TimestampType, DoubleType
 )
 
-# Import the DataCurator class
-from curation.data_curator import DataCurator, Constants, logger
+# Import the DataCurator class and helpers
+from curation.data_curator import (
+    DataCurator,
+    Constants,
+    logger,
+    load_excel_mapping,
+    load_treatment_mapping
+)
 
 # COMMAND ----------
 
@@ -62,8 +75,6 @@ legacy_raw_bkt = config["legacy_raw_bkt"].format(env=env)
 legacy_raw_bkt_mount_point = config["legacy_raw_bkt_mount_point"].rstrip("/")
 ss_header_mapping_file_path = config["ss_header_mapping_file_path"].format(env=resolved_env)
 treatment_group_mapping_file_path = config["treatment_group_mapping_file_path"].format(env=resolved_env)
-site_level_supplymethod_file_path = config["site_level_supplymethod_file_path"].format(env=resolved_env)
-country_level_supplymethod_file_path = config["country_level_supplymethod_file_path"].format(env=resolved_env)
 
 data_bkt = config["data_bkt"].format(env=env)
 data_bkt_mount_point = config["data_bkt_mount_point"].rstrip("/")
@@ -96,13 +107,76 @@ ensure_mount(data_bkt_mount_point, data_bkt)
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC #### File Reading Helper Functions
+
+# COMMAND ----------
+
+def read_csv_with_dynamic_header(dbfs_path: str, max_rows: int = 10) -> pd.DataFrame:
+    """
+    Read CSV file from DBFS with dynamic header detection.
+
+    Args:
+        dbfs_path: DBFS path (e.g., "dbfs:/mnt/...")
+        max_rows: Maximum rows to search for header
+
+    Returns:
+        pandas DataFrame
+    """
+    # Convert dbfs:/ path to /dbfs/ path for pandas
+    local_path = dbfs_path.replace("dbfs:", "/dbfs")
+
+    logger.info(f"Reading CSV: {dbfs_path}")
+
+    with open(local_path, 'r', encoding='utf-8') as f:
+        for i, line in enumerate(f):
+            if i >= max_rows:
+                raise ValueError(f"No valid header found in first {max_rows} rows")
+
+            cells = [c.strip() for c in line.split(',')]
+
+            # Check if all cells are non-empty and has multiple columns
+            if len(cells) > 1 and all(cells):
+                logger.debug(f"Found header at line {i}")
+                df = pd.read_csv(local_path, dtype=str, encoding='utf-8', skiprows=i)
+                logger.info(f"Loaded CSV: {df.shape[0]} rows, {df.shape[1]} columns")
+                return df
+
+    raise ValueError(f"No fully populated header line found in {dbfs_path}")
+
+
+def load_csv_files(file_list: List[Tuple[str, str]]) -> List[Tuple[pd.DataFrame, str]]:
+    """
+    Load multiple CSV files into DataFrames.
+
+    Args:
+        file_list: List of (file_path, file_name) tuples from dbutils
+
+    Returns:
+        List of (DataFrame, filename) tuples
+    """
+    dataframes = []
+
+    for file_path, file_name in file_list:
+        try:
+            df = read_csv_with_dynamic_header(file_path)
+            dataframes.append((df, file_name))
+            logger.info(f"✓ Loaded {file_name}: {df.shape}")
+        except Exception as e:
+            logger.error(f"✗ Error loading {file_name}: {str(e)}")
+            continue
+
+    return dataframes
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC #### Initialize DataCurator
 
 # COMMAND ----------
 
 # Load mapping file
 ss_header_mapping_file_path_full = f"/dbfs{os.path.join(legacy_raw_bkt_mount_point, ss_header_mapping_file_path)}"
-ss_header_mapping_df = DataCurator.load_excel_mapping(ss_header_mapping_file_path_full)
+ss_header_mapping_df = load_excel_mapping(ss_header_mapping_file_path_full)
 
 # Initialize DataCurator with mapping
 curator = DataCurator(mapping_df=ss_header_mapping_df)
@@ -536,87 +610,119 @@ for date_folder in selected_folders:
 
     date_folder_path = f"{raw_data_path}/{date_folder}"
 
-    # Find all summary files
+    # Find all summary files (returns file paths and names)
     summary_files = find_latest_summary_files(date_folder_path)
 
     # Process Subject Summary files
-    subject_df = curator.process_subject_summary_batch(
-        file_list=summary_files['subject'],
-        date_folder=date_folder,
-        column_mapping=MAPPING_CONFIG["subject"]["column_mapping"],
-        date_columns=MAPPING_CONFIG["subject"]["date_columns"]
-    )
-    if subject_df is not None:
-        cast_and_write_to_delta(
-            pandas_df=subject_df,
-            table_name=MAPPING_CONFIG["subject"]["table_name"],
+    if summary_files['subject']:
+        logger.info(f"\n→ Processing {len(summary_files['subject'])} Subject Summary files")
+
+        # Load CSV files into DataFrames
+        subject_dataframes = load_csv_files(summary_files['subject'])
+
+        # Process DataFrames using curator
+        subject_df = curator.process_subject_summary_batch(
+            dataframes=subject_dataframes,
             date_folder=date_folder,
-            schema_mapping=MAPPING_CONFIG["subject"]["schema_mapping"]
+            column_mapping=MAPPING_CONFIG["subject"]["column_mapping"],
+            date_columns=MAPPING_CONFIG["subject"]["date_columns"]
         )
+
+        if subject_df is not None:
+            cast_and_write_to_delta(
+                pandas_df=subject_df,
+                table_name=MAPPING_CONFIG["subject"]["table_name"],
+                date_folder=date_folder,
+                schema_mapping=MAPPING_CONFIG["subject"]["schema_mapping"]
+            )
 
     # Process Depot files
-    depot_df = curator.process_generic_batch(
-        file_list=summary_files['depot'],
-        date_folder=date_folder,
-        file_type="depot",
-        column_mapping=MAPPING_CONFIG["depot"]["column_mapping"],
-        date_columns=MAPPING_CONFIG["depot"]["date_columns"]
-    )
-    if depot_df is not None:
-        cast_and_write_to_delta(
-            pandas_df=depot_df,
-            table_name=MAPPING_CONFIG["depot"]["table_name"],
+    if summary_files['depot']:
+        logger.info(f"\n→ Processing {len(summary_files['depot'])} Depot Inventory files")
+
+        depot_dataframes = load_csv_files(summary_files['depot'])
+
+        depot_df = curator.process_generic_batch(
+            dataframes=depot_dataframes,
             date_folder=date_folder,
-            schema_mapping=MAPPING_CONFIG["depot"]["schema_mapping"]
+            file_type="depot",
+            column_mapping=MAPPING_CONFIG["depot"]["column_mapping"],
+            date_columns=MAPPING_CONFIG["depot"]["date_columns"]
         )
+
+        if depot_df is not None:
+            cast_and_write_to_delta(
+                pandas_df=depot_df,
+                table_name=MAPPING_CONFIG["depot"]["table_name"],
+                date_folder=date_folder,
+                schema_mapping=MAPPING_CONFIG["depot"]["schema_mapping"]
+            )
 
     # Process Site files
-    site_df = curator.process_generic_batch(
-        file_list=summary_files['site'],
-        date_folder=date_folder,
-        file_type="site",
-        column_mapping=MAPPING_CONFIG["site"]["column_mapping"],
-        date_columns=MAPPING_CONFIG["site"]["date_columns"]
-    )
-    if site_df is not None:
-        cast_and_write_to_delta(
-            pandas_df=site_df,
-            table_name=MAPPING_CONFIG["site"]["table_name"],
+    if summary_files['site']:
+        logger.info(f"\n→ Processing {len(summary_files['site'])} Site Inventory files")
+
+        site_dataframes = load_csv_files(summary_files['site'])
+
+        site_df = curator.process_generic_batch(
+            dataframes=site_dataframes,
             date_folder=date_folder,
-            schema_mapping=MAPPING_CONFIG["site"]["schema_mapping"]
+            file_type="site",
+            column_mapping=MAPPING_CONFIG["site"]["column_mapping"],
+            date_columns=MAPPING_CONFIG["site"]["date_columns"]
         )
+
+        if site_df is not None:
+            cast_and_write_to_delta(
+                pandas_df=site_df,
+                table_name=MAPPING_CONFIG["site"]["table_name"],
+                date_folder=date_folder,
+                schema_mapping=MAPPING_CONFIG["site"]["schema_mapping"]
+            )
 
     # Process Site-level Supply Method files
-    slevel_df = curator.process_generic_batch(
-        file_list=summary_files['slevel_supplymethod'],
-        date_folder=date_folder,
-        file_type="site-level supply method",
-        column_mapping=MAPPING_CONFIG["slevel_supplymethod"]["column_mapping"],
-        date_columns=MAPPING_CONFIG["slevel_supplymethod"]["date_columns"]
-    )
-    if slevel_df is not None:
-        cast_and_write_to_delta(
-            pandas_df=slevel_df,
-            table_name=MAPPING_CONFIG["slevel_supplymethod"]["table_name"],
+    if summary_files['slevel_supplymethod']:
+        logger.info(f"\n→ Processing {len(summary_files['slevel_supplymethod'])} Site-Level Supply Method files")
+
+        slevel_dataframes = load_csv_files(summary_files['slevel_supplymethod'])
+
+        slevel_df = curator.process_generic_batch(
+            dataframes=slevel_dataframes,
             date_folder=date_folder,
-            schema_mapping=MAPPING_CONFIG["slevel_supplymethod"]["schema_mapping"]
+            file_type="site-level supply method",
+            column_mapping=MAPPING_CONFIG["slevel_supplymethod"]["column_mapping"],
+            date_columns=MAPPING_CONFIG["slevel_supplymethod"]["date_columns"]
         )
 
+        if slevel_df is not None:
+            cast_and_write_to_delta(
+                pandas_df=slevel_df,
+                table_name=MAPPING_CONFIG["slevel_supplymethod"]["table_name"],
+                date_folder=date_folder,
+                schema_mapping=MAPPING_CONFIG["slevel_supplymethod"]["schema_mapping"]
+            )
+
     # Process Country-level Supply Method files
-    clevel_df = curator.process_generic_batch(
-        file_list=summary_files['clevel_supplymethod'],
-        date_folder=date_folder,
-        file_type="country-level supply method",
-        column_mapping=MAPPING_CONFIG["clevel_supplymethod"]["column_mapping"],
-        date_columns=MAPPING_CONFIG["clevel_supplymethod"]["date_columns"]
-    )
-    if clevel_df is not None:
-        cast_and_write_to_delta(
-            pandas_df=clevel_df,
-            table_name=MAPPING_CONFIG["clevel_supplymethod"]["table_name"],
+    if summary_files['clevel_supplymethod']:
+        logger.info(f"\n→ Processing {len(summary_files['clevel_supplymethod'])} Country-Level Supply Method files")
+
+        clevel_dataframes = load_csv_files(summary_files['clevel_supplymethod'])
+
+        clevel_df = curator.process_generic_batch(
+            dataframes=clevel_dataframes,
             date_folder=date_folder,
-            schema_mapping=MAPPING_CONFIG["clevel_supplymethod"]["schema_mapping"]
+            file_type="country-level supply method",
+            column_mapping=MAPPING_CONFIG["clevel_supplymethod"]["column_mapping"],
+            date_columns=MAPPING_CONFIG["clevel_supplymethod"]["date_columns"]
         )
+
+        if clevel_df is not None:
+            cast_and_write_to_delta(
+                pandas_df=clevel_df,
+                table_name=MAPPING_CONFIG["clevel_supplymethod"]["table_name"],
+                date_folder=date_folder,
+                schema_mapping=MAPPING_CONFIG["clevel_supplymethod"]["schema_mapping"]
+            )
 
 # COMMAND ----------
 
@@ -658,16 +764,18 @@ TREATMENT_MAPPING_CONFIG = {
     "table_name": "`pdm-pdm-gsc-bi-dev`.`clinical_inventory`.`clinical_treatment_groups`"
 }
 
-# Load and process treatment mapping
+# Load treatment mapping Excel file
 treatment_mapping_full_path = f"/dbfs{os.path.join(legacy_raw_bkt_mount_point, treatment_group_mapping_file_path)}"
-tgm_df = curator.process_treatment_mapping(
-    excel_path=treatment_mapping_full_path,
-    sheet_name='Treatment Group Mapping',
+tgm_df = load_treatment_mapping(treatment_mapping_full_path, sheet_name='Treatment Group Mapping')
+
+# Process using curator
+tgm_processed = curator.process_treatment_mapping(
+    df=tgm_df,
     column_mapping=TREATMENT_MAPPING_CONFIG["column_mapping"]
 )
 
 # Convert to Spark and write
-spark_tgm_df = spark.createDataFrame(tgm_df)
+spark_tgm_df = spark.createDataFrame(tgm_processed)
 
 # Cast each column to correct type
 for col_name, data_type in TREATMENT_MAPPING_CONFIG["schema_mapping"].items():
