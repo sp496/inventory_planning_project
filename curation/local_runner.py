@@ -41,8 +41,8 @@ PROCESS_FILE_TYPES = [
     'subject',
     'depot',
     'site',
-    # 'slevel_supplymethod',
-    # 'clevel_supplymethod',
+    'slevel_supplymethod',
+    'clevel_supplymethod',
 ]
 
 # ============================================================================
