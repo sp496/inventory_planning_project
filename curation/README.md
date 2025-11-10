@@ -55,9 +55,47 @@ curation/
 ├── data_curator.py             # DataFrame processing class (pure pandas)
 ├── curate_data_refactored.py   # Databricks notebook (file I/O + Spark)
 ├── local_runner.py              # Local debugging script
+├── quick_debug.py               # Simple script for quick debugging
 ├── test_data_curator.py         # Unit tests
-└── README.md                    # This file
+├── QUICK_START.md               # Quick reference guide
+└── README.md                    # This file (comprehensive guide)
 ```
+
+## ⚡ Quick Start - Easiest Way to Debug Locally
+
+**Just pass file paths directly - no manual file reading needed!**
+
+```python
+from curation.data_curator import DataCurator, load_excel_mapping
+
+# Load mapping
+mapping_df = load_excel_mapping('./test_data/header_mapping.xlsx')
+curator = DataCurator(mapping_df=mapping_df)
+
+# Process files - just pass the file paths!
+result = curator.process_subject_summary_batch_from_files(
+    file_paths=[
+        './test_data/GS-US-592-6173_Subject_Summary.csv',
+        './test_data/GS-US-592-6789_Subject_Summary.csv'
+    ],
+    date_folder='20251106',
+    column_mapping={"Study Protocol": "study_protocol", ...},
+    date_columns=["date_randomized"]
+)
+
+# Done! Inspect or save result
+print(result.head())
+result.to_csv('./output.csv', index=False)
+```
+
+**Or use the pre-built script:**
+```bash
+# 1. Edit curation/quick_debug.py to point to your files
+# 2. Run it:
+python curation/quick_debug.py
+```
+
+See [QUICK_START.md](QUICK_START.md) for more examples.
 
 ## Usage
 

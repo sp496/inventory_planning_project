@@ -426,6 +426,132 @@ class DataCurator:
 
         return df_renamed
 
+    # ========================================================================
+    # Convenience Methods for Local Debugging (accept file paths)
+    # ========================================================================
+
+    def process_subject_summary_batch_from_files(self,
+                                                 file_paths: List[str],
+                                                 date_folder: str,
+                                                 column_mapping: Dict[str, str],
+                                                 date_columns: List[str]) -> Optional[pd.DataFrame]:
+        """
+        Process multiple Subject Summary CSV files (convenience method for local debugging).
+
+        This method reads CSV files from disk and processes them. Use this for local debugging.
+        In Databricks, use process_subject_summary_batch() and pass DataFrames directly.
+
+        Args:
+            file_paths: List of file paths to CSV files
+            date_folder: Date folder string (e.g., "20251106")
+            column_mapping: Dictionary to rename columns
+            date_columns: List of date column names to convert
+
+        Returns:
+            Combined and processed DataFrame, or None if no files processed successfully
+
+        Example:
+            >>> curator = DataCurator(mapping_df=mapping_df)
+            >>> result = curator.process_subject_summary_batch_from_files(
+            ...     file_paths=['./data/file1.csv', './data/file2.csv'],
+            ...     date_folder='20251106',
+            ...     column_mapping={"Study Protocol": "study_protocol", ...},
+            ...     date_columns=["date_randomized"]
+            ... )
+        """
+        if not file_paths:
+            logger.warning("No file paths provided")
+            return None
+
+        logger.info(f"Processing {len(file_paths)} Subject Summary files from disk")
+
+        # Read CSV files into DataFrames
+        dataframes = []
+        for file_path in file_paths:
+            try:
+                df = read_dynamic_csv(file_path)
+                filename = file_path.split('/')[-1]  # Extract filename from path
+                dataframes.append((df, filename))
+                logger.info(f"✓ Loaded {filename}: {df.shape}")
+            except Exception as e:
+                logger.error(f"✗ Error loading {file_path}: {str(e)}")
+                continue
+
+        if not dataframes:
+            logger.error("Failed to load any files")
+            return None
+
+        # Process DataFrames using the existing method
+        return self.process_subject_summary_batch(
+            dataframes=dataframes,
+            date_folder=date_folder,
+            column_mapping=column_mapping,
+            date_columns=date_columns
+        )
+
+    def process_generic_batch_from_files(self,
+                                         file_paths: List[str],
+                                         date_folder: str,
+                                         file_type: str,
+                                         column_mapping: Dict[str, str],
+                                         date_columns: Optional[List[str]] = None) -> Optional[pd.DataFrame]:
+        """
+        Process multiple generic CSV files (convenience method for local debugging).
+
+        This method reads CSV files from disk and processes them. Use this for local debugging.
+        In Databricks, use process_generic_batch() and pass DataFrames directly.
+
+        Args:
+            file_paths: List of file paths to CSV files
+            date_folder: Date folder string
+            file_type: Type of file for logging (e.g., "depot", "site")
+            column_mapping: Dictionary to rename columns
+            date_columns: Optional list of date column names to convert
+
+        Returns:
+            Combined and processed DataFrame, or None if no files processed successfully
+
+        Example:
+            >>> curator = DataCurator(mapping_df=mapping_df)
+            >>> result = curator.process_generic_batch_from_files(
+            ...     file_paths=['./data/depot1.csv', './data/depot2.csv'],
+            ...     date_folder='20251106',
+            ...     file_type='depot',
+            ...     column_mapping={"Study Protocol": "study_protocol", ...},
+            ...     date_columns=["fp_expiry_date"]
+            ... )
+        """
+        if not file_paths:
+            logger.warning(f"No file paths provided for {file_type}")
+            return None
+
+        logger.info(f"Processing {len(file_paths)} {file_type} files from disk")
+
+        # Read CSV files into DataFrames
+        dataframes = []
+        for file_path in file_paths:
+            try:
+                df = read_dynamic_csv(file_path)
+                filename = file_path.split('/')[-1]  # Extract filename from path
+                dataframes.append((df, filename))
+                logger.info(f"✓ Loaded {filename}: {df.shape}")
+            except Exception as e:
+                logger.error(f"✗ Error loading {file_path}: {str(e)}")
+                continue
+
+        if not dataframes:
+            logger.error(f"Failed to load any {file_type} files")
+            return None
+
+        # Process DataFrames using the existing method
+        return self.process_generic_batch(
+            dataframes=dataframes,
+            date_folder=date_folder,
+            file_type=file_type,
+            column_mapping=column_mapping,
+            date_columns=date_columns
+        )
+
 
 # ========================================================================
 # Convenience Functions for Local File Reading
