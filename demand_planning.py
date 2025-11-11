@@ -604,12 +604,12 @@ class DemandPlanningProcessor:
             df: DataFrame with calculated medicine requirements
 
         Returns:
-            Aggregated DataFrame with one row per patient-medicine combination
+            Aggregated DataFrame with one row per patient-medicine-study combination
         """
-        logger.info("Aggregating by patient and medicine")
+        logger.info("Aggregating by patient, medicine, and study")
 
-        # Define aggregation
-        id_cols = ["subject_number", "drug_dispensed"]
+        # Define aggregation - include study_protocol to preserve all studies
+        id_cols = ["subject_number", "drug_dispensed", "study_protocol"]
 
         # Columns to sum
         sum_cols = ["total_medicines_required_per_cycle"]
@@ -622,7 +622,7 @@ class DemandPlanningProcessor:
 
         df_aggregated = df.groupby(id_cols, dropna=False).agg(agg_dict).reset_index()
 
-        logger.info(f"Aggregated to {len(df_aggregated)} patient-medicine combinations")
+        logger.info(f"Aggregated to {len(df_aggregated)} patient-medicine-study combinations")
 
         # Add flags for Crossover and TPC to help with prefix generation
         df_aggregated['is_crossover'] = df_aggregated['last_study_visit_recorded'].astype(str).str.contains('Crossover', case=False)
@@ -659,6 +659,7 @@ class DemandPlanningProcessor:
                     all_visits.append({
                         'subject_number': visit.subject_number,
                         'drug_dispensed': visit.drug_dispensed,
+                        'study_protocol': row['study_protocol'],
                         'cycle': visit.cycle_number,
                         'day': visit.cycle_day,
                         'predicted_next_visit_date': visit.visit_date,
@@ -706,11 +707,11 @@ class DemandPlanningProcessor:
         # Keep only columns that exist
         plan_columns = [col for col in plan_columns if col in df_plan.columns]
 
-        # Merge projections with plan details
+        # Merge projections with plan details - include study_protocol to preserve all studies
         df_final = pd.merge(
             df_visits,
             df_plan[plan_columns],
-            on=['subject_number', 'drug_dispensed'],
+            on=['subject_number', 'drug_dispensed', 'study_protocol'],
             how='left'
         )
 
