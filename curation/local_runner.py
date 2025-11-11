@@ -25,13 +25,13 @@ from data_curator import DataCurator, load_excel_mapping, logger
 # ============================================================================
 
 # Directory containing your CSV files
-DATA_DIR = "./test_data/20251106"
+DATA_DIR = "test_data/20251106"
 
 # Date folder (e.g., "20251106")
 DATE_FOLDER = "20251106"
 
 # Path to mapping Excel file
-MAPPING_FILE = "./test_data/mappings/header_mapping.xlsx"
+MAPPING_FILE = "test_data/mapping/Subject Summary Header Mapping.xlsx"
 
 # Output directory for processed files
 OUTPUT_DIR = "./output"

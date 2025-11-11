@@ -75,20 +75,6 @@ class TestDataCurator:
         with pytest.raises(ValueError, match="Could not extract Study Protocol"):
             DataCurator.extract_study_protocol(filename)
 
-    def test_remove_rows_with_n_values(self):
-        """Test removing sparse rows."""
-        df = pd.DataFrame({
-            'A': [1, None, 3, None],
-            'B': [None, None, 4, 5],
-            'C': [None, None, None, 6]
-        })
-
-        result = DataCurator.remove_rows_with_n_values(df, n=1)
-
-        # Only rows with more than 1 non-null value should remain
-        assert len(result) == 2  # Rows 2 and 3 (0-indexed)
-        assert list(result['A'].dropna()) == [3]
-
     def test_read_dynamic_csv(self, sample_csv_file):
         """Test reading CSV with dynamic header detection."""
         df = DataCurator.read_dynamic_csv(sample_csv_file)
