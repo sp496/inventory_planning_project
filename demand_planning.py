@@ -654,17 +654,26 @@ class DemandPlanningProcessor:
             try:
                 visits = self.visit_projector.project_future_visits(row)
 
-                # Convert ProjectedVisit objects to dictionaries
+                # Convert ProjectedVisit objects to dictionaries with all necessary columns
                 for visit in visits:
                     all_visits.append({
-                        'subject_number': visit.subject_number,
-                        'drug_dispensed': visit.drug_dispensed,
-                        'study_protocol': row['study_protocol'],
+                        # Visit-specific columns
+                        'predicted_study_visit': visit.visit_description,
                         'cycle': visit.cycle_number,
                         'day': visit.cycle_day,
                         'predicted_next_visit_date': visit.visit_date,
-                        'total_medicine_required_forecast': visit.medicine_quantity,
-                        'predicted_study_visit': visit.visit_description
+                        # Subject and study metadata columns
+                        'study_protocol': row['study_protocol'],
+                        'parent_depot': row.get('parent_depot'),
+                        'site_id': row.get('site_id'),
+                        'subject_number': visit.subject_number,
+                        'subject_status': row.get('subject_status'),
+                        'subject_country': row.get('subject_country'),
+                        'randomized_treatment': row.get('randomized_treatment'),
+                        'tpc': row.get('tpc'),
+                        'drug_dispensed': visit.drug_dispensed,
+                        'dispensing_quantity': row.get('dispensing_quantity'),
+                        'extract_date': row.get('extract_date')
                     })
 
             except Exception as e:
@@ -681,39 +690,19 @@ class DemandPlanningProcessor:
 
     def prepare_final_output(self, df_visits: pd.DataFrame, df_plan: pd.DataFrame) -> pd.DataFrame:
         """
-        Prepare the final output by merging projections with patient details
+        Prepare the final output by formatting the projected visits DataFrame
 
         Args:
-            df_visits: DataFrame with projected visits
-            df_plan: Original patient-medicine plan DataFrame
+            df_visits: DataFrame with projected visits (already contains all necessary columns)
+            df_plan: Original patient-medicine plan DataFrame (not used, kept for backward compatibility)
 
         Returns:
             Final formatted DataFrame ready for output
         """
         logger.info("Preparing final output")
 
-        # Define columns to keep from the plan
-        plan_columns = [
-            'subject_number', 'site_id', 'parent_depot', 'subject_status', 'subject_country',
-            'randomized_treatment', 'tpc', 'drug_dispensed', 'country',
-            'study_protocol', 'visit_days', 'visit_count_per_cycle',
-            'dispensing_quantity', 'dispensing_frequency_days', 'date_randomized',
-            'last_study_visit_recorded', 'last_study_visit_date',
-            'last_study_visit_number', 'total_medicines_required_per_cycle',
-            'study_drug_dispensed', 'additional_study_drug_dispensed',
-            'parsed_last_visit_cycle', 'parsed_last_visit_day', 'extract_date'
-        ]
-
-        # Keep only columns that exist
-        plan_columns = [col for col in plan_columns if col in df_plan.columns]
-
-        # Merge projections with plan details - include study_protocol to preserve all studies
-        df_final = pd.merge(
-            df_visits,
-            df_plan[plan_columns],
-            on=['subject_number', 'drug_dispensed', 'study_protocol'],
-            how='left'
-        )
+        # Make a copy to avoid modifying the original
+        df_final = df_visits.copy()
 
         # Rename columns for final output
         df_final.rename(columns={
