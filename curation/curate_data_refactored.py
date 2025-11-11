@@ -557,7 +557,8 @@ MAPPING_CONFIG = {
 
 # COMMAND ----------
 
-def cast_and_write_to_delta(pandas_df, table_name: str, date_folder: str, schema_mapping: dict):
+def cast_and_write_to_delta(pandas_df, table_name: str, date_folder: str, schema_mapping: dict,
+                            use_replace_where: bool = True):
     """
     Convert pandas DataFrame to Spark, cast types, and write to Delta table.
 
@@ -566,6 +567,8 @@ def cast_and_write_to_delta(pandas_df, table_name: str, date_folder: str, schema
         table_name: Target Delta table name
         date_folder: Date folder for partition overwrite
         schema_mapping: Dictionary of column names to Spark types
+        use_replace_where: If True, use replaceWhere to update only matching partitions.
+                          If False, overwrite the entire table. Defaults to True.
     """
     # Convert to Spark DataFrame
     spark_df = spark.createDataFrame(pandas_df)
@@ -583,17 +586,25 @@ def cast_and_write_to_delta(pandas_df, table_name: str, date_folder: str, schema
     # Select only columns in schema
     spark_df = spark_df.select(*schema_mapping.keys())
 
-    # Write to Delta table with partition overwrite
-    (
+    # Build the write operation
+    writer = (
         spark_df.write
         .format("delta")
         .mode("overwrite")
         .option("overwriteSchema", "false")
-        .option("replaceWhere", f"extract_date = to_date('{date_folder}', 'yyyyMMdd')")
-        .saveAsTable(table_name)
     )
 
-    logger.info(f"Successfully written {len(pandas_df)} rows to {table_name} for date {date_folder}")
+    # Conditionally add replaceWhere option
+    if use_replace_where:
+        writer = writer.option("replaceWhere", f"extract_date = to_date('{date_folder}', 'yyyyMMdd')")
+        logger.info(f"Writing {len(pandas_df)} rows to {table_name} using replaceWhere for date {date_folder}")
+    else:
+        logger.info(f"Writing {len(pandas_df)} rows to {table_name} with full table overwrite")
+
+    # Execute the write
+    writer.saveAsTable(table_name)
+
+    logger.info(f"Successfully written {len(pandas_df)} rows to {table_name}")
 
 # COMMAND ----------
 
