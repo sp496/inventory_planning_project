@@ -29,7 +29,7 @@ class Constants:
     """Constants used throughout the data curation process."""
     STUDY_PROTOCOL_PATTERN = r'GS-US-\d+-\d+'
     DATE_FOLDER_FORMAT = "%Y%m%d"
-    INPUT_DATE_FORMAT = '%d-%b-%Y'
+    INPUT_DATE_FORMATS = ['%d-%b-%Y', '%d %b %Y']  # Support multiple date formats
     OUTPUT_DATE_FORMAT = '%Y-%m-%d'
     TIMESTAMP_FORMAT = '%Y-%m-%d %H:%M:%S'
 
@@ -102,24 +102,60 @@ class DataCurator:
     @staticmethod
     def convert_date_columns(df: pd.DataFrame,
                             date_columns: List[str],
-                            input_format: str = Constants.INPUT_DATE_FORMAT) -> pd.DataFrame:
+                            input_formats: List[str] = None) -> pd.DataFrame:
         """
-        Convert date columns to datetime format.
+        Convert date columns to datetime format, trying multiple formats.
+
+        This method handles columns that may contain dates in different formats
+        by trying each format and combining the results.
 
         Args:
             df: Input DataFrame
             date_columns: List of column names to convert
-            input_format: Input date format string
+            input_formats: List of possible input date format strings. If None, uses Constants.INPUT_DATE_FORMATS
 
         Returns:
             DataFrame with converted date columns
         """
+        if input_formats is None:
+            input_formats = Constants.INPUT_DATE_FORMATS
+
         df = df.copy()
 
         for col in date_columns:
-            if col in df.columns:
-                df[col] = pd.to_datetime(df[col], format=input_format, errors='coerce')
-                logger.debug(f"Converted date column: {col}")
+            if col not in df.columns:
+                continue
+
+            # Start with all NaT (Not a Time)
+            result = pd.Series([pd.NaT] * len(df), index=df.index)
+            total_converted = 0
+
+            # Try each format and fill in successfully converted values
+            for fmt in input_formats:
+                try:
+                    # Try converting with this format
+                    converted = pd.to_datetime(df[col], format=fmt, errors='coerce')
+
+                    # For rows that are still NaT in result, try to use this format's result
+                    mask = result.isna() & converted.notna()
+                    result[mask] = converted[mask]
+
+                    newly_converted = mask.sum()
+                    if newly_converted > 0:
+                        logger.debug(f"Format '{fmt}' converted {newly_converted} values in column '{col}'")
+                        total_converted += newly_converted
+
+                except Exception as e:
+                    logger.debug(f"Format {fmt} failed for column {col}: {str(e)}")
+                    continue
+
+            # Assign the result back to the dataframe
+            df[col] = result
+
+            if total_converted > 0:
+                logger.info(f"Converted date column '{col}': {total_converted}/{len(df)} values successfully parsed")
+            else:
+                logger.warning(f"Could not convert any values in date column '{col}' with provided formats: {input_formats}")
 
         return df
 
