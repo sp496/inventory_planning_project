@@ -545,7 +545,12 @@ class DemandPlanningProcessor:
 
     def merge_and_calculate(self, df_subjects: pd.DataFrame, df_mapping: pd.DataFrame) -> pd.DataFrame:
         """
-        Merge subject and mapping data, then calculate medicine requirements
+        Merge subject and mapping data using hierarchical country-specific matching,
+        then calculate medicine requirements.
+
+        Merge Strategy:
+        1. First priority: Match with country-specific protocols (country is specified in mapping)
+        2. Fallback: Match with generic protocols (country is null in mapping)
 
         Args:
             df_subjects: Subject DataFrame
@@ -554,14 +559,99 @@ class DemandPlanningProcessor:
         Returns:
             Merged DataFrame with calculated medicine requirements
         """
-        logger.info("Merging subject and treatment mapping data")
+        logger.info("Merging subject and treatment mapping data with hierarchical country matching")
 
-        # Define merge keys
-        merge_keys = ["study_protocol", "randomized_treatment", "tpc", "subject_status"]
+        # Define base merge keys (without country)
+        base_merge_keys = ["study_protocol", "randomized_treatment", "tpc", "subject_status"]
 
-        # Perform inner merge
-        df_merged = pd.merge(df_subjects, df_mapping, on=merge_keys, how="inner")
-        logger.info(f"Merged resulted in {len(df_merged)} records")
+        # ========================================================================
+        # STEP 1: Try country-specific match first (highest priority)
+        # ========================================================================
+
+        # Filter mapping data to only country-specific protocols (where country is not null)
+        df_mapping_country_specific = df_mapping[df_mapping['country'].notna()].copy()
+
+        if len(df_mapping_country_specific) > 0:
+            # Merge with country included
+            merge_keys_with_country = base_merge_keys + ["country"]
+            df_merged_country_specific = pd.merge(
+                df_subjects,
+                df_mapping_country_specific,
+                on=merge_keys_with_country,
+                how="inner"
+            )
+            logger.info(f"Country-specific merge resulted in {len(df_merged_country_specific)} records")
+        else:
+            df_merged_country_specific = pd.DataFrame()
+            logger.info("No country-specific mappings found")
+
+        # ========================================================================
+        # STEP 2: For non-matched subjects, try generic match (fallback)
+        # ========================================================================
+
+        # Identify subjects that were NOT matched in country-specific merge
+        if len(df_merged_country_specific) > 0:
+            matched_subject_numbers = set(df_merged_country_specific['subject_number'].unique())
+            df_subjects_remaining = df_subjects[~df_subjects['subject_number'].isin(matched_subject_numbers)].copy()
+            logger.info(f"{len(df_subjects_remaining)} subjects remaining for generic match")
+        else:
+            df_subjects_remaining = df_subjects.copy()
+            logger.info(f"All {len(df_subjects_remaining)} subjects will attempt generic match")
+
+        # Filter mapping data to only generic protocols (where country is null)
+        df_mapping_generic = df_mapping[df_mapping['country'].isna()].copy()
+
+        if len(df_subjects_remaining) > 0 and len(df_mapping_generic) > 0:
+            # Merge without country (use base keys only)
+            df_merged_generic = pd.merge(
+                df_subjects_remaining,
+                df_mapping_generic,
+                on=base_merge_keys,
+                how="inner"
+            )
+            logger.info(f"Generic merge resulted in {len(df_merged_generic)} records")
+        else:
+            df_merged_generic = pd.DataFrame()
+            if len(df_mapping_generic) == 0:
+                logger.warning("No generic mappings found (all mappings are country-specific)")
+
+        # ========================================================================
+        # STEP 3: Standardize country columns before combining
+        # ========================================================================
+
+        # For country-specific merge: 'country' column exists (was part of merge key)
+        # For generic merge: 'country_x' (subject) and 'country_y' (mapping, all null) exist
+
+        if len(df_merged_generic) > 0:
+            # Rename country_x to subject_country (if it exists)
+            if 'country_x' in df_merged_generic.columns:
+                df_merged_generic.rename(columns={'country_x': 'subject_country'}, inplace=True)
+            # Drop country_y as it's all null for generic matches
+            if 'country_y' in df_merged_generic.columns:
+                df_merged_generic.drop(columns=['country_y'], inplace=True)
+            # Add 'country' column with null to indicate generic protocol
+            df_merged_generic['country'] = None
+
+        if len(df_merged_country_specific) > 0:
+            # Add subject_country column (same as country for country-specific matches)
+            df_merged_country_specific['subject_country'] = df_merged_country_specific['country']
+
+        # ========================================================================
+        # STEP 4: Combine both merge results
+        # ========================================================================
+
+        if len(df_merged_country_specific) > 0 and len(df_merged_generic) > 0:
+            df_merged = pd.concat([df_merged_country_specific, df_merged_generic], ignore_index=True)
+        elif len(df_merged_country_specific) > 0:
+            df_merged = df_merged_country_specific
+        elif len(df_merged_generic) > 0:
+            df_merged = df_merged_generic
+        else:
+            logger.error("No matches found in either country-specific or generic merge")
+            return pd.DataFrame()
+
+        logger.info(f"Total merged records: {len(df_merged)} "
+                   f"({len(df_merged_country_specific)} country-specific + {len(df_merged_generic)} generic)")
 
         # Calculate visit count per cycle
         def count_visits(visit_days_str):
@@ -787,14 +877,10 @@ class DemandPlanningProcessor:
         df_subjects, df_mapping = self.normalize_data(df_subjects, df_mapping)
         # df_subjects = df_subjects[df_subjects['subject_number'] == 92465]
 
-        # Merge and calculate requirements
+        # Merge and calculate requirements (includes hierarchical country matching)
         df_merged = self.merge_and_calculate(df_subjects, df_mapping)
 
-        # Handle country column after merge (may become country_x and country_y)
-        if 'country_x' in df_merged.columns:
-            df_merged.rename(columns={'country_x': 'subject_country'}, inplace=True)
-        if 'country_y' in df_merged.columns and 'country' not in df_merged.columns:
-            df_merged.rename(columns={'country_y': 'country'}, inplace=True)
+        # Country columns are already handled in merge_and_calculate method
 
         # Aggregate by patient-medicine
         df_plan = self.aggregate_by_patient_medicine(df_merged)
