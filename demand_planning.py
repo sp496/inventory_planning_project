@@ -563,6 +563,11 @@ class DemandPlanningProcessor:
         """
         logger.info("Merging subject and treatment mapping data with hierarchical country matching")
 
+        # Add temporary row identifier to track individual rows (not just subject numbers)
+        # This is critical because same subject can have multiple rows with different protocols/status
+        df_subjects = df_subjects.copy()
+        df_subjects['_temp_row_id'] = range(len(df_subjects))
+
         # Define base merge keys (without country)
         base_merge_keys = ["study_protocol", "randomized_treatment", "tpc", "subject_status"]
 
@@ -589,17 +594,18 @@ class DemandPlanningProcessor:
             logger.info("No country-specific mappings found")
 
         # ========================================================================
-        # STEP 2: For non-matched subjects, try generic match (fallback)
+        # STEP 2: For non-matched rows, try generic match (fallback)
         # ========================================================================
 
-        # Identify subjects that were NOT matched in country-specific merge
+        # Identify ROWS (not just subjects) that were NOT matched in country-specific merge
         if len(df_merged_country_specific) > 0:
-            matched_subject_numbers = set(df_merged_country_specific['subject_number'].unique())
-            df_subjects_remaining = df_subjects[~df_subjects['subject_number'].isin(matched_subject_numbers)].copy()
-            logger.info(f"{len(df_subjects_remaining)} subjects remaining for generic match")
+            matched_row_ids = set(df_merged_country_specific['_temp_row_id'].unique())
+            df_subjects_remaining = df_subjects[~df_subjects['_temp_row_id'].isin(matched_row_ids)].copy()
+            logger.info(f"{len(df_subjects_remaining)} subject rows remaining for generic match "
+                       f"(out of {len(df_subjects)} total rows)")
         else:
             df_subjects_remaining = df_subjects.copy()
-            logger.info(f"All {len(df_subjects_remaining)} subjects will attempt generic match")
+            logger.info(f"All {len(df_subjects_remaining)} subject rows will attempt generic match")
 
         # Filter mapping data to only generic protocols (where country is 'nan' string)
         df_mapping_generic = df_mapping[df_mapping['country'] == 'nan'].copy()
@@ -655,6 +661,9 @@ class DemandPlanningProcessor:
 
         logger.info(f"Total merged records: {len(df_merged)} "
                    f"({len(df_merged_country_specific)} country-specific + {len(df_merged_generic)} generic)")
+
+        # Remove temporary row identifier
+        df_merged.drop(columns=['_temp_row_id'], inplace=True)
 
         # Calculate visit count per cycle
         def count_visits(visit_days_str):
