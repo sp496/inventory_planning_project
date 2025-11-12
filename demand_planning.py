@@ -550,7 +550,9 @@ class DemandPlanningProcessor:
 
         Merge Strategy:
         1. First priority: Match with country-specific protocols (country is specified in mapping)
-        2. Fallback: Match with generic protocols (country is null in mapping)
+        2. Fallback: Match with generic protocols (country is 'nan' string in mapping)
+
+        Note: After normalization, null country values become the string 'nan'
 
         Args:
             df_subjects: Subject DataFrame
@@ -568,8 +570,9 @@ class DemandPlanningProcessor:
         # STEP 1: Try country-specific match first (highest priority)
         # ========================================================================
 
-        # Filter mapping data to only country-specific protocols (where country is not null)
-        df_mapping_country_specific = df_mapping[df_mapping['country'].notna()].copy()
+        # Filter mapping data to only country-specific protocols (where country is not 'nan' string)
+        # Note: normalize_text() converts null values to the string 'nan'
+        df_mapping_country_specific = df_mapping[df_mapping['country'] != 'nan'].copy()
 
         if len(df_mapping_country_specific) > 0:
             # Merge with country included
@@ -598,8 +601,8 @@ class DemandPlanningProcessor:
             df_subjects_remaining = df_subjects.copy()
             logger.info(f"All {len(df_subjects_remaining)} subjects will attempt generic match")
 
-        # Filter mapping data to only generic protocols (where country is null)
-        df_mapping_generic = df_mapping[df_mapping['country'].isna()].copy()
+        # Filter mapping data to only generic protocols (where country is 'nan' string)
+        df_mapping_generic = df_mapping[df_mapping['country'] == 'nan'].copy()
 
         if len(df_subjects_remaining) > 0 and len(df_mapping_generic) > 0:
             # Merge without country (use base keys only)
@@ -620,17 +623,17 @@ class DemandPlanningProcessor:
         # ========================================================================
 
         # For country-specific merge: 'country' column exists (was part of merge key)
-        # For generic merge: 'country_x' (subject) and 'country_y' (mapping, all null) exist
+        # For generic merge: 'country_x' (subject) and 'country_y' (mapping, all 'nan') exist
 
         if len(df_merged_generic) > 0:
             # Rename country_x to subject_country (if it exists)
             if 'country_x' in df_merged_generic.columns:
                 df_merged_generic.rename(columns={'country_x': 'subject_country'}, inplace=True)
-            # Drop country_y as it's all null for generic matches
+            # Drop country_y as it's all 'nan' for generic matches
             if 'country_y' in df_merged_generic.columns:
                 df_merged_generic.drop(columns=['country_y'], inplace=True)
-            # Add 'country' column with null to indicate generic protocol
-            df_merged_generic['country'] = None
+            # Add 'country' column with 'nan' to indicate generic protocol
+            df_merged_generic['country'] = 'nan'
 
         if len(df_merged_country_specific) > 0:
             # Add subject_country column (same as country for country-specific matches)
