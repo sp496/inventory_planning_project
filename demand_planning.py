@@ -219,7 +219,7 @@ class TextProcessor:
             Normalized lowercase text with cleaned quotes
         """
         if pd.isna(text):
-            return str(text)
+            return 'nan'
 
         text = str(text)
         # Replace smart quotes with regular quotes
