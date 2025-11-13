@@ -82,7 +82,8 @@ class Config:
         "Screen Failed",
         "Pre-Screened Failed",
         "Treatment Discontinued",
-        "Crossover Treatment Discontinued"
+        "Crossover Treatment Discontinued",
+        "Enrolled"
     ]
 
     # Default values
