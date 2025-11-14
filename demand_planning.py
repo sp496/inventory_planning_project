@@ -215,7 +215,7 @@ class TextProcessor:
             text: Input text to normalize
 
         Returns:
-            Normalized lowercase text with cleaned quotes
+            Normalized text with cleaned quotes and stripped whitespace
         """
         if pd.isna(text):
             return str(text)
@@ -223,8 +223,8 @@ class TextProcessor:
         text = str(text)
         # Replace smart quotes with regular quotes
         text = text.replace("'", "'").replace(""", '"').replace(""", '"')
-        # Strip whitespace and convert to lowercase
-        return text.strip().lower()
+        # Strip whitespace (case is preserved)
+        return text.strip()
 
     @staticmethod
     def parse_cycle_day(visit_string: str) -> int:
@@ -559,8 +559,27 @@ class DemandPlanningProcessor:
         # Define merge keys
         merge_keys = ["study_protocol", "randomized_treatment", "tpc", "subject_status"]
 
-        # Perform inner merge
-        df_merged = pd.merge(df_subjects, df_mapping, on=merge_keys, how="inner")
+        # Create temporary lowercase columns for case-insensitive matching
+        temp_merge_keys = [f"{key}_lower_temp" for key in merge_keys]
+
+        for i, key in enumerate(merge_keys):
+            if key in df_subjects.columns:
+                df_subjects[temp_merge_keys[i]] = df_subjects[key].astype(str).str.lower()
+            if key in df_mapping.columns:
+                df_mapping[temp_merge_keys[i]] = df_mapping[key].astype(str).str.lower()
+
+        # Perform inner merge using temporary lowercase columns
+        df_merged = pd.merge(df_subjects, df_mapping, on=temp_merge_keys, how="inner", suffixes=('', '_mapping'))
+
+        # Drop temporary merge columns
+        df_merged = df_merged.drop(columns=temp_merge_keys)
+
+        # Remove duplicate columns from mapping (keep original case from subjects)
+        for key in merge_keys:
+            mapping_col = f"{key}_mapping"
+            if mapping_col in df_merged.columns:
+                df_merged = df_merged.drop(columns=[mapping_col])
+
         logger.info(f"Merged resulted in {len(df_merged)} records")
 
         # Calculate visit count per cycle

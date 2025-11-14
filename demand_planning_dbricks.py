@@ -126,7 +126,7 @@ def normalize_text(s):
     if pd.isna(s):
         return str(s)
     s = str(s)
-    return s.replace("’", "'").strip().lower()
+    return s.replace("'", "'").strip()
 
 
 for col in ["study_protocol", "randomized_treatment", "tpc", "country"]:
@@ -142,8 +142,27 @@ for col in ["study_drug_dispensed", "additional_study_drug_dispensed"]:
 # --- Step 4: Merge and Calculate ---
 # df_map_filtered = df_map[df_map["Study Protocol"] == "gs-us-592-6173"]
 join_cols = ["study_protocol", "randomized_treatment", "tpc", "subject_status"]
-# Inner merge on protocol keys
-df_merged = pd.merge(df_subj, df_map, on=join_cols, how="inner")
+
+# Create temporary lowercase columns for case-insensitive matching
+temp_join_cols = [f"{col}_lower_temp" for col in join_cols]
+
+for i, col in enumerate(join_cols):
+    if col in df_subj.columns:
+        df_subj[temp_join_cols[i]] = df_subj[col].astype(str).str.lower()
+    if col in df_map.columns:
+        df_map[temp_join_cols[i]] = df_map[col].astype(str).str.lower()
+
+# Inner merge on protocol keys using temporary lowercase columns
+df_merged = pd.merge(df_subj, df_map, on=temp_join_cols, how="inner", suffixes=('', '_mapping'))
+
+# Drop temporary merge columns
+df_merged = df_merged.drop(columns=temp_join_cols)
+
+# Remove duplicate columns from mapping (keep original case from subjects)
+for col in join_cols:
+    mapping_col = f"{col}_mapping"
+    if mapping_col in df_merged.columns:
+        df_merged = df_merged.drop(columns=[mapping_col])
 
 
 def count_visits(v):
