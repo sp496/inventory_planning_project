@@ -80,11 +80,38 @@ Only active patients receiving treatment will have future medication needs. Excl
 
 ### How Patients are Matched to Treatment Protocols
 
-**Matching Keys** (all must match):
+The system uses a **hierarchical matching strategy** that prioritizes country-specific protocols over generic protocols.
+
+**Base Matching Keys** (all must match):
 1. **Study Protocol** - The clinical study identifier (e.g., "GS-US-592-6173")
 2. **Randomized Treatment** - The treatment arm assigned at randomization
 3. **TPC (Treatment Protocol Code)** - Additional treatment classification
 4. **Subject Status** - Current patient status
+
+### Hierarchical Country Matching
+
+The mapping data can contain:
+- **Country-specific protocols**: Where the `country` field has a value (e.g., "united states", "canada")
+- **Generic protocols**: Where the `country` field is null (applies to all countries)
+
+**Matching Priority**:
+
+1. **First Priority - Country-Specific Match**:
+   - Includes `country` in the matching keys
+   - Matches patient's country exactly with mapping's country
+   - Example: Patient in USA matches USA-specific protocol
+
+2. **Fallback - Generic Match**:
+   - Only for patients not matched in step 1
+   - Matches only on base keys (excluding country)
+   - Uses only mapping rows where country is null
+   - Example: Patient in Canada with no Canada-specific protocol uses generic protocol
+
+**Why This Approach?**
+- Allows different drug dispensing rules per country
+- Provides flexibility for country-specific regulations
+- Maintains a default protocol for countries without specific rules
+- Ensures every active patient gets matched
 
 ### Text Normalization
 Before matching, all text fields are normalized:
@@ -499,7 +526,44 @@ For each cycle offset (0, 1, 2, 3, ...):
 
 ---
 
-### Case 8: Patient with Complex Visit Pattern
+### Case 8: Country-Specific vs Generic Protocol Matching
+
+**Characteristics**:
+- Some patients match country-specific protocols
+- Other patients fall back to generic protocols
+
+**Mapping Data**:
+```
+Row 1: study=GS-123, treatment=A, tpc=TPC1, status=OnTreatment, country=USA
+       drug=DrugX-USA, dispensing_qty=3
+
+Row 2: study=GS-123, treatment=A, tpc=TPC1, status=OnTreatment, country=null
+       drug=DrugX-Generic, dispensing_qty=2
+```
+
+**Scenario A - Country-Specific Match**:
+- Patient in USA
+- **Match**: Row 1 (country-specific)
+- Drug dispensed: DrugX-USA
+- Quantity per visit: 3
+
+**Scenario B - Generic Fallback**:
+- Patient in Canada (no Canada-specific mapping exists)
+- **Match**: Row 2 (generic, country=null)
+- Drug dispensed: DrugX-Generic
+- Quantity per visit: 2
+
+**Business Rationale**:
+- Allows country-specific regulations (e.g., different package sizes)
+- USA patients get USA-specific protocol
+- Other countries use default protocol
+- Ensures all patients are covered
+
+**Important**: Patients never match BOTH rows - country-specific match takes priority.
+
+---
+
+### Case 9: Patient with Complex Visit Pattern
 
 **Characteristics**:
 - Multiple visits per cycle at irregular intervals
@@ -654,23 +718,25 @@ A projected visit is included in the forecast **only if ALL**of the following ar
 
 1. **Only active patients** are included in forecasting
 
-2. **365 days** is the primary projection horizon
+2. **Hierarchical country matching**: Country-specific protocols take priority over generic (null country) protocols
 
-3. **Max cycles** (if defined) provides a secondary hard cap
+3. **365 days** is the primary projection horizon
 
-4. **Time-based projection** takes precedence over cycle-based
+4. **Max cycles** (if defined) provides a secondary hard cap
 
-5. **Missed cycles are rolled forward** to realistic future dates
+5. **Time-based projection** takes precedence over cycle-based
 
-6. **Each patient-medicine combination** generates independent forecasts
+6. **Missed cycles are rolled forward** to realistic future dates
 
-7. **Visit descriptions preserve prefix** (Crossover, TPC) for traceability
+7. **Each patient-medicine combination** generates independent forecasts
 
-8. **Medicine quantity** = Visits per cycle × Dispensing quantity per visit
+8. **Visit descriptions preserve prefix** (Crossover, TPC) for traceability
 
-9. **Remaining current cycle visits** are projected first, then future cycles
+9. **Medicine quantity** = Visits per cycle × Dispensing quantity per visit
 
-10. **Projection stops** when visits exceed both time and cycle limits
+10. **Remaining current cycle visits** are projected first, then future cycles
+
+11. **Projection stops** when visits exceed both time and cycle limits
 
 ---
 
