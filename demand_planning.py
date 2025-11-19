@@ -210,13 +210,13 @@ class TextProcessor:
     @staticmethod
     def normalize_text(text: Any) -> str:
         """
-        Normalize text for consistent matching
+        Normalize text by cleaning quotes and whitespace while preserving case
 
         Args:
             text: Input text to normalize
 
         Returns:
-            Normalized lowercase text with cleaned quotes
+            Normalized text with cleaned quotes and trimmed whitespace (case preserved)
         """
         if pd.isna(text):
             return 'nan'
@@ -224,8 +224,8 @@ class TextProcessor:
         text = str(text)
         # Replace smart quotes with regular quotes
         text = text.replace("'", "'").replace(""", '"').replace(""", '"')
-        # Strip whitespace and convert to lowercase
-        return text.strip().lower()
+        # Strip whitespace (case is preserved)
+        return text.strip()
 
     @staticmethod
     def parse_cycle_day(visit_string: str) -> int:
@@ -554,6 +554,8 @@ class DemandPlanningProcessor:
         2. Fallback: Match with generic protocols (country is 'nan' string in mapping)
 
         Note: After normalization, null country values become the string 'nan'
+        Case-insensitive matching is performed using temporary lowercase columns,
+        while original case is preserved in the results.
 
         Args:
             df_subjects: Subject DataFrame
@@ -569,8 +571,24 @@ class DemandPlanningProcessor:
         df_subjects = df_subjects.copy()
         df_subjects['_temp_row_id'] = range(len(df_subjects))
 
+        df_mapping = df_mapping.copy()
+
         # Define base merge keys (without country)
         base_merge_keys = ["study_protocol", "randomized_treatment", "tpc", "subject_status"]
+
+        # ========================================================================
+        # Create temporary lowercase columns for case-insensitive matching
+        # ========================================================================
+        merge_cols_to_lower = base_merge_keys + ["country"]
+
+        for col in merge_cols_to_lower:
+            if col in df_subjects.columns:
+                df_subjects[f'{col}_lower'] = df_subjects[col].astype(str).str.lower()
+            if col in df_mapping.columns:
+                df_mapping[f'{col}_lower'] = df_mapping[col].astype(str).str.lower()
+
+        # Create lowercase versions of merge keys
+        base_merge_keys_lower = [f'{col}_lower' for col in base_merge_keys]
 
         # ========================================================================
         # STEP 1: Try country-specific match first (highest priority)
@@ -581,13 +599,14 @@ class DemandPlanningProcessor:
         df_mapping_country_specific = df_mapping[df_mapping['country'] != 'nan'].copy()
 
         if len(df_mapping_country_specific) > 0:
-            # Merge with country included
-            merge_keys_with_country = base_merge_keys + ["country"]
+            # Merge with country included (using lowercase columns)
+            merge_keys_with_country_lower = base_merge_keys_lower + ["country_lower"]
             df_merged_country_specific = pd.merge(
                 df_subjects,
                 df_mapping_country_specific,
-                on=merge_keys_with_country,
-                how="inner"
+                on=merge_keys_with_country_lower,
+                how="inner",
+                suffixes=('', '_mapping')
             )
             logger.info(f"Country-specific merge resulted in {len(df_merged_country_specific)} records")
         else:
@@ -612,12 +631,13 @@ class DemandPlanningProcessor:
         df_mapping_generic = df_mapping[df_mapping['country'] == 'nan'].copy()
 
         if len(df_subjects_remaining) > 0 and len(df_mapping_generic) > 0:
-            # Merge without country (use base keys only)
+            # Merge without country (use base keys only, with lowercase columns)
             df_merged_generic = pd.merge(
                 df_subjects_remaining,
                 df_mapping_generic,
-                on=base_merge_keys,
-                how="inner"
+                on=base_merge_keys_lower,
+                how="inner",
+                suffixes=('', '_mapping')
             )
             logger.info(f"Generic merge resulted in {len(df_merged_generic)} records")
         else:
@@ -626,23 +646,29 @@ class DemandPlanningProcessor:
                 logger.warning("No generic mappings found (all mappings are country-specific)")
 
         # ========================================================================
-        # STEP 3: Standardize country columns before combining
+        # STEP 3: Standardize columns before combining
         # ========================================================================
 
-        # For country-specific merge: 'country' column exists (was part of merge key)
-        # For generic merge: 'country_x' (subject) and 'country_y' (mapping, all 'nan') exist
+        # Handle duplicate columns from merge (due to suffixes)
+        # We want to keep the original case-preserved columns from subjects dataframe
 
         if len(df_merged_generic) > 0:
-            # Rename country_x to subject_country (if it exists)
-            if 'country_x' in df_merged_generic.columns:
-                df_merged_generic.rename(columns={'country_x': 'subject_country'}, inplace=True)
-            # Drop country_y as it's all 'nan' for generic matches
-            if 'country_y' in df_merged_generic.columns:
-                df_merged_generic.drop(columns=['country_y'], inplace=True)
-            # Add 'country' column with 'nan' to indicate generic protocol
-            df_merged_generic['country'] = 'nan'
+            # For columns that appear in both dataframes, keep the subject version
+            # and drop the mapping version (with _mapping suffix)
+            for col in base_merge_keys + ['country']:
+                if f'{col}_mapping' in df_merged_generic.columns:
+                    df_merged_generic.drop(columns=[f'{col}_mapping'], inplace=True)
+
+            # Add subject_country column from the original country column
+            df_merged_generic['subject_country'] = df_merged_generic['country']
 
         if len(df_merged_country_specific) > 0:
+            # For columns that appear in both dataframes, keep the subject version
+            # and drop the mapping version (with _mapping suffix)
+            for col in base_merge_keys + ['country']:
+                if f'{col}_mapping' in df_merged_country_specific.columns:
+                    df_merged_country_specific.drop(columns=[f'{col}_mapping'], inplace=True)
+
             # Add subject_country column (same as country for country-specific matches)
             df_merged_country_specific['subject_country'] = df_merged_country_specific['country']
 
@@ -663,8 +689,15 @@ class DemandPlanningProcessor:
         logger.info(f"Total merged records: {len(df_merged)} "
                    f"({len(df_merged_country_specific)} country-specific + {len(df_merged_generic)} generic)")
 
-        # Remove temporary row identifier
-        df_merged.drop(columns=['_temp_row_id'], inplace=True)
+        # Remove temporary columns (row identifier and lowercase columns)
+        cols_to_drop = ['_temp_row_id']
+        for col in merge_cols_to_lower:
+            cols_to_drop.append(f'{col}_lower')
+
+        # Only drop columns that exist
+        cols_to_drop = [col for col in cols_to_drop if col in df_merged.columns]
+        if cols_to_drop:
+            df_merged.drop(columns=cols_to_drop, inplace=True)
 
         # Calculate visit count per cycle
         def count_visits(visit_days_str):
