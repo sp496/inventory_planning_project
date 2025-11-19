@@ -1,16 +1,4 @@
 # Databricks notebook source
-"""
-Clinical Inventory Data Curation - Refactored Databricks Notebook
-
-This notebook handles Databricks-specific operations (file I/O, mounting, Spark operations)
-and passes DataFrames to the DataCurator class for processing.
-
-Key Design:
-- Databricks notebook: Handles ALL file I/O using dbutils
-- DataCurator: Processes DataFrames (pandas operations only)
-- This separation allows local debugging by passing CSV DataFrames
-"""
-
 import os
 import json
 import logging
@@ -336,6 +324,7 @@ MAPPING_CONFIG = {
             "Gender": "gender",
             "TPC": "tpc",
             "Date Randomized": "date_randomized",
+            "Date Treatment Discontinued": "date_treatment_discontinued",
             "Date Crossover Enrolled": "date_crossover_enrolled",
             "Date Crossover Approved": "date_crossover_approved",
             "Date Crossover Treatment Discontinued": "date_crossover_treatment_discontinued",
@@ -354,7 +343,7 @@ MAPPING_CONFIG = {
             "Next Max. Additional Drug Visit Date": "next_max_additional_drug_visit_date"
         },
         "date_columns": [
-            "date_randomized", "date_crossover_enrolled", "date_crossover_approved",
+            "date_randomized","date_treatment_discontinued", "date_crossover_enrolled", "date_crossover_approved",
             "date_crossover_treatment_discontinued", "last_study_visit_date",
             "next_min_study_visit_date", "next_max_study_visit_date",
             "last_additional_drug_visit_date", "next_min_additional_drug_visit_date",
@@ -371,6 +360,7 @@ MAPPING_CONFIG = {
             "gender": StringType(),
             "tpc": StringType(),
             "date_randomized": DateType(),
+            "date_treatment_discontinued": DateType(),
             "date_crossover_enrolled": DateType(),
             "date_crossover_approved": DateType(),
             "date_crossover_treatment_discontinued": DateType(),
@@ -557,8 +547,7 @@ MAPPING_CONFIG = {
 
 # COMMAND ----------
 
-def cast_and_write_to_delta(pandas_df, table_name: str, date_folder: str, schema_mapping: dict,
-                            use_replace_where: bool = True):
+def cast_and_write_to_delta(pandas_df, table_name: str, date_folder: str, schema_mapping:  dict, use_replace_where: bool = True):
     """
     Convert pandas DataFrame to Spark, cast types, and write to Delta table.
 
@@ -709,7 +698,8 @@ for date_folder in selected_folders:
                 pandas_df=slevel_df,
                 table_name=MAPPING_CONFIG["slevel_supplymethod"]["table_name"],
                 date_folder=date_folder,
-                schema_mapping=MAPPING_CONFIG["slevel_supplymethod"]["schema_mapping"]
+                schema_mapping=MAPPING_CONFIG["slevel_supplymethod"]["schema_mapping"],
+                use_replace_where=False
             )
 
     # Process Country-level Supply Method files
@@ -731,7 +721,73 @@ for date_folder in selected_folders:
                 pandas_df=clevel_df,
                 table_name=MAPPING_CONFIG["clevel_supplymethod"]["table_name"],
                 date_folder=date_folder,
-                schema_mapping=MAPPING_CONFIG["clevel_supplymethod"]["schema_mapping"]
+                schema_mapping=MAPPING_CONFIG["clevel_supplymethod"]["schema_mapping"],
+                use_replace_where=False
             )
 
 # COMMAND ----------
+
+# MAGIC %md
+# MAGIC #### Treatment Plan Mapping
+
+# COMMAND ----------
+
+treatment_group_mapping_file_path = f"/dbfs{os.path.join(legacy_raw_bkt_mount_point, treatment_group_mapping_file_path)}"
+tgm_df = pd.read_excel(treatment_group_mapping_file_path, sheet_name='Treatment Group Mapping', dtype='str', engine='openpyxl')
+
+# COMMAND ----------
+
+# 🗺️ Column rename mapping (DataFrame → table)
+
+column_mapping = {
+    "Study Protocol": "study_protocol",
+    "Randomized Treatment": "randomized_treatment",
+    "Subject Status": "subject_status",
+    "TPC\nTreatment of Physician's Choice\nTopotecan OR Amrubicin Choice Of Drug\nIntended TPC": "tpc",
+    "Study Drug Dispensed": "study_drug_dispensed",
+    "Additional Study Drug Dispensed": "additional_study_drug_dispensed",
+    "Additional Study Drug Prefix": "additional_study_drug_prefix",
+    "Country": "country",
+    "Visit Days": "visit_days",
+    "Dispensing Quantity": "dispensing_quantity",
+    "Dispensing Frequency (Days)": "dispensing_frequency_days",
+    "Max Cycles": "max_cycles"
+}
+
+# 🧱 Expected schema for casting
+schema_mapping = {
+    "study_protocol": StringType(),
+    "randomized_treatment": StringType(),
+    "subject_status": StringType(),
+    "tpc": StringType(),
+    "study_drug_dispensed": StringType(),
+    "additional_study_drug_dispensed": StringType(),
+    "additional_study_drug_prefix": StringType(),
+    "country": StringType(),
+    "visit_days": StringType(),
+    "dispensing_quantity": LongType(),
+    "dispensing_frequency_days": LongType(),
+    "max_cycles": DoubleType()
+}
+
+# 🧩 Step 1: Rename columns
+tgm_df_renamed = tgm_df.rename(columns=column_mapping)
+
+# 🧱 Step 2: Convert pandas → Spark
+spark_tgm_df = spark.createDataFrame(tgm_df_renamed)
+
+# 🧮 Step 3: Cast each column to correct type
+for col_name, data_type in schema_mapping.items():
+    if col_name in spark_tgm_df.columns:
+        spark_tgm_df = spark_tgm_df.withColumn(col_name, F.col(col_name).cast(data_type))
+
+# 💾 Step 4: Truncate and load (overwrite entire table)
+(
+    spark_tgm_df.write
+    .format("delta")
+    .mode("overwrite")  # full overwrite (truncate + load)
+    .option("overwriteSchema", "false")
+    .saveAsTable("`pdm-pdm-gsc-bi-dev`.`clinical_inventory`.`clinical_treatment_groups`")
+)
+
+print("✅ Successfully loaded clinical_treatment_group_mapping table (truncate and load).")

@@ -80,7 +80,7 @@ MAPPING_CONFIG = {
             "Next Max. Additional Drug Visit Date": "next_max_additional_drug_visit_date"
         },
         "date_columns": [
-            "date_randomized", "date_crossover_enrolled", "date_crossover_approved",
+            "date_randomized", "date_treatment_discontinued", "date_crossover_enrolled", "date_crossover_approved",
             "date_crossover_treatment_discontinued", "last_study_visit_date",
             "next_min_study_visit_date", "next_max_study_visit_date",
             "last_additional_drug_visit_date", "next_min_additional_drug_visit_date",
