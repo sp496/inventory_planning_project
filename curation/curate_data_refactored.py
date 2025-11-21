@@ -315,6 +315,102 @@ def find_latest_summary_files(date_folder_path: str) -> dict:
 
     return summary_files
 
+
+def find_latest_summary_files_by_filename_timestamp(date_folder_path: str) -> dict:
+    """
+    For each study subfolder within a date folder, find the latest CSV file for each category
+    by extracting the timestamp from the filename itself (not file modification time).
+
+    Filename format expected: *YYYY-MM-DD-HH-MM-SS.csv
+    Example: Gilead GS-US-577-6153_Subject Summary (Unblinded)Subject Summary2025-11-10-08-19-19.csv
+
+    Args:
+        date_folder_path: Path to the date folder
+
+    Returns:
+        Dictionary with keys for each file type, containing list of (file_path, file_name) tuples
+    """
+    import re
+
+    summary_files = {
+        'subject': [],
+        'site': [],
+        'depot': [],
+        'slevel_supplymethod': [],
+        'clevel_supplymethod': []
+    }
+
+    # Regex pattern to extract timestamp from filename: YYYY-MM-DD-HH-MM-SS before .csv
+    timestamp_pattern = r'(\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2})\.csv$'
+
+    try:
+        subfolders = [item for item in dbutils.fs.ls(date_folder_path) if item.isDir()]
+
+        for subfolder in subfolders:
+            subfolder_path = subfolder.path
+            logger.info(f"Scanning study folder: {subfolder_path}")
+
+            latest_in_study = {key: None for key in summary_files.keys()}
+
+            try:
+                files = dbutils.fs.ls(subfolder_path)
+                for file in files:
+                    file_name = file.name
+                    file_name_lower = file_name.lower()
+
+                    if not file_name_lower.endswith('.csv'):
+                        continue
+
+                    # Extract timestamp from filename
+                    match = re.search(timestamp_pattern, file_name)
+                    if not match:
+                        logger.warning(f"Could not extract timestamp from filename: {file_name}")
+                        continue
+
+                    timestamp_str = match.group(1)
+                    try:
+                        # Parse timestamp: YYYY-MM-DD-HH-MM-SS
+                        file_datetime = datetime.strptime(timestamp_str, '%Y-%m-%d-%H-%M-%S')
+                    except ValueError as e:
+                        logger.warning(f"Could not parse timestamp '{timestamp_str}' from file {file_name}: {e}")
+                        continue
+
+                    # Determine category
+                    category = None
+                    if 'subject summary' in file_name_lower:
+                        category = 'subject'
+                    elif 'site' in file_name_lower and 'inventory' in file_name_lower:
+                        category = 'site'
+                    elif 'depot' in file_name_lower and 'inventory' in file_name_lower:
+                        category = 'depot'
+                    elif 'site' in file_name_lower and 'supplymethod' in file_name_lower:
+                        category = 'slevel_supplymethod'
+                    elif 'country' in file_name_lower and 'supplymethod' in file_name_lower:
+                        category = 'clevel_supplymethod'
+
+                    if category:
+                        current_entry = latest_in_study[category]
+                        if current_entry is None or file_datetime > current_entry['datetime']:
+                            latest_in_study[category] = {
+                                'path': file.path,
+                                'name': file_name,
+                                'datetime': file_datetime
+                            }
+
+                # Add the latest file from this subfolder to overall list
+                for category, info in latest_in_study.items():
+                    if info:
+                        summary_files[category].append((info['path'], info['name']))
+                        logger.info(f"Latest {category} → {info['name']} (timestamp: {info['datetime']})")
+
+            except Exception as e:
+                logger.error(f"Error scanning subfolder {subfolder_path}: {str(e)}")
+
+    except Exception as e:
+        logger.error(f"Error scanning date folder {date_folder_path}: {str(e)}")
+
+    return summary_files
+
 # COMMAND ----------
 
 # MAGIC %md
