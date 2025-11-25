@@ -87,7 +87,7 @@ class Config:
     ]
 
     # Default values
-    DEFAULT_PROJECTION_DAYS = 365  # Project visits for one year ahead (primary constraint)
+    DEFAULT_PROJECTION_DAYS = 1095  # Project visits for one year ahead (primary constraint)
     # Note: max_cycles from mapping is a secondary constraint (hard cap on cycle numbers)
 
 
@@ -620,7 +620,7 @@ class DemandPlanningProcessor:
         # Identify ROWS (not just subjects) that were NOT matched in country-specific merge
         if len(df_merged_country_specific) > 0:
             matched_row_ids = set(df_merged_country_specific['_temp_row_id'].unique())
-            df_subjects_remaining = df_subjects[~df_subjects['_temp_row_id'].isin(matched_row_ids)].copy()
+            df_subjects_remaining = df_subjects.copy()#[~df_subjects['_temp_row_id'].isin(matched_row_ids)].copy()
             logger.info(f"{len(df_subjects_remaining)} subject rows remaining for generic match "
                        f"(out of {len(df_subjects)} total rows)")
         else:
@@ -921,7 +921,8 @@ class DemandPlanningProcessor:
 
         # Normalize data
         df_subjects, df_mapping = self.normalize_data(df_subjects, df_mapping)
-        # df_subjects = df_subjects[df_subjects['subject_number'] == 92465]
+        df_subjects = df_subjects[(df_subjects['subject_number'] == 30567) | (df_subjects['subject_number'] == 30641)]
+        # df_subjects = df_subjects[(df_subjects['study_protocol'] == 'GS-US-626-6216') & (df_subjects['tpc'] == 'Carboplatin and Paclitaxel') & (df_subjects['randomized_treatment'] == 'ZIM+DOM + Chemotherapy') & (df_subjects['subject_status'] == 'Randomized')]
 
         # Merge and calculate requirements (includes hierarchical country matching)
         df_merged = self.merge_and_calculate(df_subjects, df_mapping)
