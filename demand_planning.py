@@ -689,6 +689,81 @@ class DemandPlanningProcessor:
         logger.info(f"Total merged records: {len(df_merged)} "
                    f"({len(df_merged_country_specific)} country-specific + {len(df_merged_generic)} generic)")
 
+        # build country set (lowercase) from your existing list
+        country_list = df_mapping_country_specific['country'].dropna().unique().tolist()
+        country_set = {c.lower() for c in country_list}
+
+        def extract_drug_base(val):
+            if val == 'nan':
+                return 'nan'  # preserve NaN
+
+            s = str(val).strip()
+
+            # 1) Remove dosage and everything after the first digit
+            s = re.sub(r'\d.*', '', s).strip()
+
+            # 2) Remove country names (case-insensitive) with optional hyphen
+            for c in country_set:
+                s = re.sub(rf'(?i)\b{re.escape(c)}\b-?', '', s)
+                s = re.sub(rf'(?i)-\b{re.escape(c)}\b', '', s)
+
+            # 3) Remove leftover brackets if any survived
+            s = re.sub(r'[\(\)]', '', s)
+
+            # 4) Clean leading/trailing hyphens or extra spaces
+            s = re.sub(r'^[\s\-]+', '', s)
+            s = re.sub(r'[\s\-]+$', '', s)
+            s = re.sub(r'\s{2,}', ' ', s)
+
+            return s.strip()
+
+        df_mapping_country_specific['study_drug_dispensed_base'] = (
+            df_mapping_country_specific['study_drug_dispensed'].apply(extract_drug_base)
+        )
+
+        key_cols = [
+            'study_protocol_lower',
+            'randomized_treatment_lower',
+            'tpc_lower',
+            'subject_status_lower',
+            'country_lower',
+            'study_drug_dispensed_base'
+        ]
+
+        df_mapping_country_specific["key_col"] = (
+            df_mapping_country_specific[key_cols]
+            .astype(str)
+            .agg("+".join, axis=1)
+        )
+
+        country_specific_dispense_map = (
+            df_mapping_country_specific
+            .groupby("key_col")["study_drug_dispensed"]
+            .apply(list)
+            .to_dict()
+        )
+
+        df_merged['study_drug_dispensed_base'] = df_merged['study_drug_dispensed'].str.extract(r'^(.*?)\s\d', expand=False)
+
+        df_merged["key_col"] = (
+            df_merged[key_cols]
+            .astype(str)
+            .agg("+".join, axis=1)
+        )
+
+        df_merged = df_merged[
+            df_merged.apply(
+                lambda row: (
+                                # If key does not exist → keep the row
+                                    row["key_col"] not in country_specific_dispense_map
+                            ) or (
+                                # If key exists → check if value is allowed
+                                    row["study_drug_dispensed"] in country_specific_dispense_map[row["key_col"]]
+                            ),
+                axis=1
+            )
+        ]
+
         # Remove temporary columns (row identifier and lowercase columns)
         cols_to_drop = ['_temp_row_id']
         for col in merge_cols_to_lower:
@@ -921,7 +996,9 @@ class DemandPlanningProcessor:
 
         # Normalize data
         df_subjects, df_mapping = self.normalize_data(df_subjects, df_mapping)
-        df_subjects = df_subjects[(df_subjects['subject_number'] == 30567) | (df_subjects['subject_number'] == 30641)]
+        # df_subjects = df_subjects[(df_subjects['subject_number'] == 30567) | (df_subjects['subject_number'] == 30641)]
+        df_subjects = df_subjects[(df_subjects['study_protocol'] == 'GS-US-600-6165')]
+        df_subjects = df_subjects[(df_subjects['subject_number'] == 50080) | (df_subjects['subject_number'] == 50101) | (df_subjects['subject_number'] == 50014) | (df_subjects['subject_number'] == 50100)]
         # df_subjects = df_subjects[(df_subjects['study_protocol'] == 'GS-US-626-6216') & (df_subjects['tpc'] == 'Carboplatin and Paclitaxel') & (df_subjects['randomized_treatment'] == 'ZIM+DOM + Chemotherapy') & (df_subjects['subject_status'] == 'Randomized')]
 
         # Merge and calculate requirements (includes hierarchical country matching)
