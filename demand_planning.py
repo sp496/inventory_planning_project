@@ -617,23 +617,13 @@ class DemandPlanningProcessor:
         # STEP 2: For non-matched rows, try generic match (fallback)
         # ========================================================================
 
-        # Identify ROWS (not just subjects) that were NOT matched in country-specific merge
-        if len(df_merged_country_specific) > 0:
-            matched_row_ids = set(df_merged_country_specific['_temp_row_id'].unique())
-            df_subjects_remaining = df_subjects.copy()#[~df_subjects['_temp_row_id'].isin(matched_row_ids)].copy()
-            logger.info(f"{len(df_subjects_remaining)} subject rows remaining for generic match "
-                       f"(out of {len(df_subjects)} total rows)")
-        else:
-            df_subjects_remaining = df_subjects.copy()
-            logger.info(f"All {len(df_subjects_remaining)} subject rows will attempt generic match")
-
         # Filter mapping data to only generic protocols (where country is 'nan' string)
         df_mapping_generic = df_mapping[df_mapping['country'] == 'nan'].copy()
 
-        if len(df_subjects_remaining) > 0 and len(df_mapping_generic) > 0:
+        if len(df_subjects) > 0 and len(df_mapping_generic) > 0:
             # Merge without country (use base keys only, with lowercase columns)
             df_merged_generic = pd.merge(
-                df_subjects_remaining,
+                df_subjects,
                 df_mapping_generic,
                 on=base_merge_keys_lower,
                 how="inner",
@@ -820,7 +810,7 @@ class DemandPlanningProcessor:
         logger.info("Aggregating by patient and medicine")
 
         # Define aggregation
-        id_cols = ["subject_number", "drug_dispensed"]
+        id_cols = ["study_protocol", "subject_number", "drug_dispensed"]
 
         # Columns to sum
         sum_cols = ["total_medicines_required_per_cycle"]
@@ -996,9 +986,12 @@ class DemandPlanningProcessor:
 
         # Normalize data
         df_subjects, df_mapping = self.normalize_data(df_subjects, df_mapping)
+        # df_subjects = df_subjects[(df_subjects['subject_number'] == 50072)]
+        df_subjects = df_subjects[(df_subjects['study_protocol'] == 'GS-US-569-6172') & (df_subjects['parent_depot'] == '448')]
+
         # df_subjects = df_subjects[(df_subjects['subject_number'] == 30567) | (df_subjects['subject_number'] == 30641)]
-        df_subjects = df_subjects[(df_subjects['study_protocol'] == 'GS-US-600-6165')]
-        df_subjects = df_subjects[(df_subjects['subject_number'] == 50080) | (df_subjects['subject_number'] == 50101) | (df_subjects['subject_number'] == 50014) | (df_subjects['subject_number'] == 50100)]
+        # df_subjects = df_subjects[(df_subjects['study_protocol'] == 'GS-US-569-6172')]
+        # df_subjects = df_subjects[(df_subjects['subject_number'] == 50080) | (df_subjects['subject_number'] == 50101) | (df_subjects['subject_number'] == 50014) | (df_subjects['subject_number'] == 50100)]
         # df_subjects = df_subjects[(df_subjects['study_protocol'] == 'GS-US-626-6216') & (df_subjects['tpc'] == 'Carboplatin and Paclitaxel') & (df_subjects['randomized_treatment'] == 'ZIM+DOM + Chemotherapy') & (df_subjects['subject_status'] == 'Randomized')]
 
         # Merge and calculate requirements (includes hierarchical country matching)
